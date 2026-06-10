@@ -16,10 +16,15 @@ jobs:
           # EXPECTED SHA-256 HASH:
           EXPECTED_HASH: "fb2b36ed7162e713601a00534068a934ecc8ad15c974d4e4df6738a511ff2ba5"
         run: |
-          # 1. Parse out the plaintext input following the Markdown passcode header
-          # This extracts the line right after the 'Class Passcode' title
-          STUDENT_PASS=$(echo "$ISSUE_BODY" | grep -A1 "### Class Passcode" | tail -n1 | tr -d '[:space:]')
+          # 1. Locate the header section and grab the non-empty text line that immediately follows it
+          STUDENT_PASS=$(echo "$ISSUE_BODY" | sed -n '/### Class Passcode/{n;p;}' | tr -d '[:space:]')
           
+          # Fallback check: If the line directly after was empty, scan down an extra line
+          if [ -z "$STUDENT_PASS" ] || [ "$STUDENT_PASS" = "_No_response_" ]; then
+            STUDENT_PASS=$(echo "$ISSUE_BODY" | sed -n '/### Class Passcode/{n;n;p;}' | tr -d '[:space:]')
+          fi
+
+        
           # 2. Hash the extracted passcode text block using SHA-256
           STUDENT_HASH=$(echo -n "$STUDENT_PASS" | sha256sum | awk '{print $1}')
           
