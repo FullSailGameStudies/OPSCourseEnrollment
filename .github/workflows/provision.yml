@@ -130,7 +130,7 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          git clone "https://x-access-token:${GH_TOKEN}@://github.com{ORG}/${NEW_REPO_NAME}.git"
+          git clone "https://x-access-token:${GH_TOKEN}@github.com${ORG}/${NEW_REPO_NAME}.git"
           cd $NEW_REPO_NAME
           
           git checkout master
