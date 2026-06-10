@@ -9,21 +9,21 @@ jobs:
     if: contains(github.event.issue.labels.*.name, 'provision-repo')
     runs-on: ubuntu-latest
     steps:
-      - name: Parse Passcode from Form
-        id: parse
-        uses: eddieebuchen/content-parser-action@v1
-        with:
-          content: ${{ github.event.issue.body }}
-
-      - name: Verify Passcode
+      - name: Parse and Verify Passcode
         env:
-          STUDENT_PASS: ${{ steps.parse.outputs.passcode }}
-          # PASTE YOUR EXPECTED SHA-256 HASH HERE BELOW:
+          # Pulls the raw string block of the issue description text
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          # EXPECTED SHA-256 HASH:
           EXPECTED_HASH: "fb2b36ed7162e713601a00534068a934ecc8ad15c974d4e4df6738a511ff2ba5"
         run: |
-          CLEAN_PASS=$(echo -n "$STUDENT_PASS" | tr -d '[:space:]')
-          STUDENT_HASH=$(echo -n "$CLEAN_PASS" | sha256sum | awk '{print $1}')
+          # 1. Parse out the plaintext input following the Markdown passcode header
+          # This extracts the line right after the 'Class Passcode' title
+          STUDENT_PASS=$(echo "$ISSUE_BODY" | grep -A1 "### Class Passcode" | tail -n1 | tr -d '[:space:]')
           
+          # 2. Hash the extracted passcode text block using SHA-256
+          STUDENT_HASH=$(echo -n "$STUDENT_PASS" | sha256sum | awk '{print $1}')
+          
+          # 3. Perform the cryptographic mismatch evaluation check
           if [ "$STUDENT_HASH" != "$EXPECTED_HASH" ]; then
             echo "AUTH_FAILED=true" >> $GITHUB_ENV
             echo "::error::Invalid class passcode submitted."
