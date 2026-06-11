@@ -14,28 +14,32 @@ jobs:
       - name: Purge Completed Enrollment Issues
         env:
           GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          echo "Fetching completed enrollment issues..."
-          # 1. Gather up the unique IDs of all closed issues marked with our tracking label
-          CLOSED_ISSUES=$(gh issue list --state closed --label "provision-repo" --json number --jq '.[].number')
+          echo "Fetching completed enrollment issues for $GH_REPO..."
+          
+          # Gather up the unique IDs of all closed issues marked with our tracking label
+          CLOSED_ISSUES=$(gh issue list --state closed --label "provision-repo" --json number --jq '.[].number' 2>/dev/null || true)
           
           if [ -z "$CLOSED_ISSUES" ]; then
             echo "No closed issues found to clear."
           else
-            # 2. Delete each closed issue one by one using the GitHub API
+            # Delete each closed issue one by one using the GitHub API
             for num in $CLOSED_ISSUES; do
               echo "Permanently deleting issue #$num..."
-              gh api --method DELETE /repos/$GITHUB_REPOSITORY/issues/$num || true
+              gh api --method DELETE /repos/$GH_REPO/issues/$num || true
             done
           fi
 
       - name: Purge Completed Workflow Run Logs
         env:
           GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          echo "Fetching historical workflow runs..."
-          # 1. Gather up to 100 historical completed runs from our dashboard
-          RUN_IDS=$(gh run list --limit 100 --json databaseId --jq '.[].databaseId')
+          echo "Fetching historical workflow runs for $GH_REPO..."
+          
+          # Gather up to 100 historical completed runs from our dashboard
+          RUN_IDS=$(gh run list --limit 100 --json databaseId --jq '.[].databaseId' 2>/dev/null || true)
           
           # Get the ID of the CURRENT running cleanup job so it doesn't try to delete itself while running
           CURRENT_RUN_ID="${{ github.run_id }}"
@@ -43,7 +47,7 @@ jobs:
           if [ -z "$RUN_IDS" ]; then
             echo "No historical workflow runs found to clear."
           else
-            # 2. Mass delete the historical tracking logs
+            # Mass delete the historical tracking logs
             for run_id in $RUN_IDS; do
               if [ "$run_id" != "$CURRENT_RUN_ID" ]; then
                 echo "Permanently deleting workflow run log ID: $run_id..."
