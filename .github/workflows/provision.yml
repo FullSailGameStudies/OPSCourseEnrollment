@@ -24,6 +24,7 @@ jobs:
         id: code_check
         env:
           ISSUE_BODY: ${{ github.event.issue.body }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # 1. Parse the email input block following the Markdown form title
           STUDENT_EMAIL=$(echo "$ISSUE_BODY" | sed -n '/### University Email Address/{n;p;}' | tr -d '[:space:]')
