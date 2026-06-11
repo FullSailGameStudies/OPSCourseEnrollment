@@ -1,17 +1,17 @@
 name: Request Assignment Repository
-description: Instantly provision your private assignment repository using your active GitHub account.
+description: Instantly provision your private assignment repository using your official student email address.
 title: "Private Repository Request"
 labels: ["provision-repo"]
 body:
   - type: markdown
     attributes:
       value: |
-        ### Welcome to the Course!
-        Clicking submit below will automatically create your personal repository under our organization using the active GitHub account you are currently logged into (**@${{ github.actor }}**).
+        ### Welcome to the PG2 Course!
+        Clicking submit below will automatically create your personal repository under our organization.
   - type: input
-    id: passcode
+    id: student_email
     attributes:
-      label: Class Passcode
-      placeholder: Enter the secret passcode provided in class or syllabus.
+      label: University Email Address
+      placeholder: Enter your Full Sail student email address.
     validations:
       required: true

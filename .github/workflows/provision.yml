@@ -9,60 +9,74 @@ jobs:
     if: contains(github.event.issue.labels.*.name, 'provision-repo')
     runs-on: ubuntu-latest
     steps:
-      - name: Parse and Verify Passcode
+      - name: Checkout Enrollment Repository
+        # We must clone our own repo first to read and edit the pg2Info.txt file
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.ORG_ADMIN_TOKEN }}
+          
+          
+      - name: Parse and Validate Student Email Hash
+        id: code_check
         env:
-          # Pulls the raw string block of the issue description text
           ISSUE_BODY: ${{ github.event.issue.body }}
-          # EXPECTED SHA-256 HASH:
-          EXPECTED_HASH: "fb2b36ed7162e713601a00534068a934ecc8ad15c974d4e4df6738a511ff2ba5"
         run: |
-          # 1. Locate the header section and grab the non-empty text line that immediately follows it
-          STUDENT_PASS=$(echo "$ISSUE_BODY" | sed -n '/### Class Passcode/{n;p;}' | tr -d '[:space:]')
-          
-          # Fallback check: If the line directly after was empty, scan down an extra line
-          if [ -z "$STUDENT_PASS" ] || [ "$STUDENT_PASS" = "_No_response_" ]; then
-            STUDENT_PASS=$(echo "$ISSUE_BODY" | sed -n '/### Class Passcode/{n;n;p;}' | tr -d '[:space:]')
+          # 1. Parse the email input block following the Markdown form title
+          STUDENT_EMAIL=$(echo "$ISSUE_BODY" | sed -n '/### University Email Address/{n;p;}' | tr -d '[:space:]')
+          if [ -z "$STUDENT_EMAIL" ] || [ "$STUDENT_EMAIL" = "_No_response_" ]; then
+            STUDENT_EMAIL=$(echo "$ISSUE_BODY" | sed -n '/### University Email Address/{n;n;p;}' | tr -d '[:space:]')
           fi
+          
+          # 2. Normalize to lowercase and cryptographically hash the student email
+          CLEAN_EMAIL=$(echo "$STUDENT_EMAIL" | tr '[:upper:]' '[:lower:]')
+          STUDENT_HASH=$(echo -n "$CLEAN_EMAIL" | sha256sum | awk '{print $1}')
+          
+          echo "Checking if email hash exists on the course roster..."
+          
+          # 3. Look for the generated hash inside our public pg2Info.txt file
+          if grep -Fxq "$STUDENT_HASH" pg2Info.txt; then
+            echo "CODE_VALID=true" >> $GITHUB_ENV
+            
+            # 4. Extract the global prefix from the first line of pg2Info.txt            
+            REPO_PREFIX=$(grep "# PREFIX:" pg2Info.txt | head -n1 | sed 's/# PREFIX: //g' | tr -d '[:space:]')
+            
+            # Form the custom dynamic repository name
+            STUDENT_USER="${{ github.event.issue.user.login }}"
+            RESOLVED_REPO_NAME="${REPO_PREFIX}${STUDENT_USER}"
+            
+            # Save the name into the global environment scope for downstream steps
+            echo "DYNAMIC_REPO_NAME=$RESOLVED_REPO_NAME" >> $GITHUB_ENV
+            echo "Validated student workspace target name: $RESOLVED_REPO_NAME"
+            
+            # Permanently delete the matched email hash string from the file
+            sed -i "/^$STUDENT_HASH$/d" pg2Info.txt
 
-        
-          # 2. Hash the extracted passcode text block using SHA-256
-          STUDENT_HASH=$(echo -n "$STUDENT_PASS" | sha256sum | awk '{print $1}')
-          
-          
-          # ==================== DEBUG LINES START ====================
-          echo "--- DEBUGGING PASSCODE PARSING ---"
-          echo "The script extracted this exact text block: [$STUDENT_PASS]"
-          
-          # Calculate and print the hash it generated from that text
-          STUDENT_HASH=$(echo -n "$STUDENT_PASS" | sha256sum | awk '{print $1}')
-          echo "The generated SHA-256 hash was: [$STUDENT_HASH]"
-          echo "The target expected hash is:   [$EXPECTED_HASH]"
-          echo "----------------------------------"
-          # ==================== DEBUG LINES END ====================
-          
-          
-          
-          # 3. Perform the cryptographic mismatch evaluation check
-          if [ "$STUDENT_HASH" != "$EXPECTED_HASH" ]; then
-            echo "AUTH_FAILED=true" >> $GITHUB_ENV
-            echo "::error::Invalid class passcode submitted."
-            echo STUDENT_PASS
           else
-            echo "AUTH_FAILED=false" >> $GITHUB_ENV
+            echo "CODE_VALID=false" >> $GITHUB_ENV
+            echo "::error::Submitted email is not on the roster or has already registered."
           fi
 
-      - name: Handle Invalid Passcode
-        if: env.AUTH_FAILED == 'true'
+
+      - name: Burn Code and Commit Changes
+        if: env.CODE_VALID == 'true'
+        run: |
+          # Configure local identity settings to save the modified pg2Info.txt file
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@://github.com"
+          
+          # Track, record, and push the updated list back to GitHub
+          git add pg2Info.txt
+          git commit -m "Burn claim code used by ${{ github.event.issue.user.login }}"
+          git push
+
+      - name: Handle Invalid Claim Code
+        if: env.CODE_VALID == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          gh issue comment $ISSUE_NUMBER \
-            --repo "$GITHUB_REPOSITORY" \
-            --body "❌ **Repository Creation Failed:** The passcode you entered is incorrect. Please verify the code from the course page and try opening a new issue."
-          gh issue close $ISSUE_NUMBER \
-            --repo "$GITHUB_REPOSITORY" \
-            --reason "not_planned"
+          gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "❌ **Repository Creation Failed:** The claim code you entered is invalid or has already been used by another student. Please double-check your assigned code and try opening a new issue."
+          gh issue close $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --reason "not_planned"
           exit 1
 
       - name: Check If Repository Already Exists
@@ -70,7 +84,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
           ORG: "FullSailGameStudies"
-          NEW_REPO_NAME: "pg2-2607b-${{ github.event.issue.user.login }}"
+          NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
         run: |
           # Check if the repository can be resolved by the GitHub CLI
           if gh repo view "$ORG/$NEW_REPO_NAME" > /dev/null 2>&1; then
@@ -87,7 +101,7 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ORG: "FullSailGameStudies"
           STUDENT: ${{ github.event.issue.user.login }}
-          NEW_REPO_NAME: "pg2-2607b-${{ github.event.issue.user.login }}"
+          NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
         run: |
           gh issue comment $ISSUE_NUMBER \
             --repo "$GITHUB_REPOSITORY" \
@@ -109,7 +123,7 @@ jobs:
           ORG: "FullSailGameStudies"
           TEMPLATE_REPO: "PG2StudentRepo26.6"
           STUDENT: ${{ github.event.issue.user.login }}
-          NEW_REPO_NAME: "pg2-2607b-${{ github.event.issue.user.login }}"
+          NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
         run: |
           echo "Creating private repository $NEW_REPO_NAME from template..."
           gh api \
@@ -133,7 +147,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
           ORG: "FullSailGameStudies"
-          NEW_REPO_NAME: "pg2-2607b-${{ github.event.issue.user.login }}"
+          NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
@@ -163,7 +177,7 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ORG: "FullSailGameStudies"
           STUDENT: ${{ github.event.issue.user.login }}
-          NEW_REPO_NAME: "pg2-2607b-${{ github.event.issue.user.login }}"
+          NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
         run: |
           gh issue comment $ISSUE_NUMBER \
             --repo "$GITHUB_REPOSITORY" \
