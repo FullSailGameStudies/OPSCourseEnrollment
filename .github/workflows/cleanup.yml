@@ -18,16 +18,18 @@ jobs:
         run: |
           echo "Fetching completed enrollment issues for $GH_REPO..."
           
-          # Gather up the unique IDs of all closed issues marked with our tracking label
-          CLOSED_ISSUES=$(gh issue list --state closed --label "provision-repo" --json number --jq '.[].number' 2>/dev/null || true)
+          # Gather up the unique IDs of all open or un-locked closed issues
+          CLOSED_ISSUES=$(gh issue list --state all --label "provision-repo" --json number --jq '.[].number' 2>/dev/null || true)
           
           if [ -z "$CLOSED_ISSUES" ]; then
-            echo "No closed issues found to clear."
+            echo "No matching assignment enrollment issues found to lock."
           else
-            # Delete each closed issue one by one using the GitHub API
             for num in $CLOSED_ISSUES; do
-              echo "Permanently deleting issue #$num..."
-              gh api --method DELETE /repos/$GH_REPO/issues/$num || true
+              echo "Closing and permanently locking issue #$num to protect privacy..."
+              # Ensure the issue is closed
+              gh issue close "$num" --repo "$GH_REPO" --reason "completed" || true
+              # Lock the issue so it cannot be viewed or interacted with by outsiders
+              gh issue lock "$num" --repo "$GH_REPO" --reason "resolved" || true
             done
           fi
 
