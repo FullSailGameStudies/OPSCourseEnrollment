@@ -3,6 +3,10 @@ name: Provision Student Repository
 on:
   issues:
     types: [opened]
+    
+concurrency:
+  group: enrollment-queue
+  cancel-in-progress: false # Forces GitHub to queue them sequentially to handle multiple students
 
 jobs:
   create-repo:
@@ -40,13 +44,19 @@ jobs:
             # 4. Extract the global prefix from the first line of pg2Info.txt            
             REPO_PREFIX=$(grep "# PREFIX:" pg2Info.txt | head -n1 | sed 's/# PREFIX: //g' | tr -d '[:space:]')
             
+            # 5. Extract the template repository name from the second line of codes.txt
+            TEMPLATE_NAME=$(grep "# TEMPLATE:" pg2Info.txt | head -n1 | sed 's/# TEMPLATE: //g' | tr -d '[:space:]')
+            
             # Form the custom dynamic repository name
             STUDENT_USER="${{ github.event.issue.user.login }}"
             RESOLVED_REPO_NAME="${REPO_PREFIX}${STUDENT_USER}"
             
             # Save the name into the global environment scope for downstream steps
             echo "DYNAMIC_REPO_NAME=$RESOLVED_REPO_NAME" >> $GITHUB_ENV
+            echo "DYNAMIC_TEMPLATE_NAME=$TEMPLATE_NAME" >> $GITHUB_ENV
+
             echo "Validated student workspace target name: $RESOLVED_REPO_NAME"
+            echo "Target starter code template: $TEMPLATE_NAME"
             
             # Permanently delete the matched email hash string from the file
             sed -i "/^$STUDENT_HASH$/d" pg2Info.txt
@@ -107,7 +117,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --body "⚠️ @$STUDENT You have already requested an assignment repository for this project. 
           
-          Your active private workspace is located here: **https://github.com**
+          Your active private workspace is located here: **https://github.com/${ORG}/${NEW_REPO_NAME}**
           
           This duplicate request issue has been closed automatically to prevent overwriting your existing code."
           
@@ -121,7 +131,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
           ORG: "FullSailGameStudies"
-          TEMPLATE_REPO: "PG2StudentRepo26.6"
+          TEMPLATE_REPO: ${{ env.DYNAMIC_TEMPLATE_NAME }}
           STUDENT: ${{ github.event.issue.user.login }}
           NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
         run: |
