@@ -157,13 +157,15 @@ jobs:
             -F private=true
 
           # sleep 5
-          # Loops up to 10 times (max 30 seconds), breaking out the instant files exist.
-          for i in {1..10}; do
-            if gh repo view "$ORG/$NEW_REPO_NAME" --json defaultBranchRef | grep -q "name"; then
-              echo "Repository files initialized successfully!"
+          # Loops up to 15 times, waiting 3 seconds per attempt (45 seconds total max).
+          # It queries the branches endpoint. If it returns an empty bracket '[]' or errors out, it continues waiting.
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+            BRANCH_CHECK=$(gh api /repos/$ORG/$NEW_REPO_NAME/branches --jq '.[].name' 2>/dev/null || true)
+            if [ -n "$BRANCH_CHECK" ]; then
+              echo "Repository files and branches initialized successfully!"
               break
             fi
-            echo "Still initializing... waiting 3 seconds (Attempt $i/10)"
+            echo "Template copy in progress... waiting 3 seconds (Attempt $i/15)"
             sleep 3
           done
 
@@ -173,6 +175,7 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             /repos/$ORG/$NEW_REPO_NAME/collaborators/$STUDENT \
             -f permission='write'
+        shell: bash
 
       - name: Initialize Feedback Branch and PR
         env:
