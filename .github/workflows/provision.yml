@@ -53,9 +53,10 @@ jobs:
           fi
           echo "AUTH_FAILED=false" >> $GITHUB_ENV
 
-          # 4. Capacity Check: Count how many repositories already use our prefix inside the Org
-          # This explicitly searches the target organization for repositories matching the repo prefix
-          CURRENT_COUNT=$(gh search repos --owner $ORG_NAME $REPO_PREFIX --json name --jq '. | length')
+          # 4. Capacity Check: Count how many repositories already use our prefix inside the Org  
+          # This pulls up to 1000 repos from the Org and uses grep to count names starting with the repo prefix
+          CURRENT_COUNT=$(gh repo list "$ORG_NAME" --limit 1000 --json name --jq '.[].name' | grep "^$REPO_PREFIX" | wc -l | tr -d '[:space:]')
+       
           echo "Active repositories using prefix '$REPO_PREFIX': $CURRENT_COUNT / $MAX_LIMIT"
 
           if [ "$CURRENT_COUNT" -ge "$MAX_LIMIT" ]; then
