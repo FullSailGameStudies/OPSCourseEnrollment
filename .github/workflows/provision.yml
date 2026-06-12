@@ -55,7 +55,7 @@ jobs:
 
           # 4. Capacity Check: Count how many repositories already use our prefix inside the Org
           # This explicitly searches the target organization for repositories matching the repo prefix
-          CURRENT_COUNT=$(gh search repos --owner "$ORG_NAME" "$REPO_PREFIX" --json name --jq '. | length' 2>/dev/null || echo "0")
+          CURRENT_COUNT=$(gh search repos --owner "$ORG_NAME" "$REPO_PREFIX" --json name --jq '. | length')
           echo "Active repositories using prefix '$REPO_PREFIX': $CURRENT_COUNT / $MAX_LIMIT"
 
           if [ "$CURRENT_COUNT" -ge "$MAX_LIMIT" ]; then
