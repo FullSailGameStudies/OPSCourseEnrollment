@@ -3,10 +3,11 @@ name: Provision Student Repository
 on:
   issues:
     types: [opened]
-    
-concurrency:
-  group: enrollment-queue
-  cancel-in-progress: false # Forces GitHub to queue them sequentially to handle multiple students
+  
+# Don't need this anymore since we're not updating the txt file, just reading it
+# concurrency:
+#   group: enrollment-queue
+#   cancel-in-progress: false # Forces GitHub to queue them sequentially to handle multiple students
 
 jobs:
   create-repo:
@@ -27,77 +28,67 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 1. Parse the email input block following the Markdown form title
-          STUDENT_EMAIL=$(echo "$ISSUE_BODY" | sed -n '/### University Email Address/{n;p;}' | tr -d '[:space:]')
-          if [ -z "$STUDENT_EMAIL" ] || [ "$STUDENT_EMAIL" = "_No_response_" ]; then
-            STUDENT_EMAIL=$(echo "$ISSUE_BODY" | sed -n '/### University Email Address/{n;n;p;}' | tr -d '[:space:]')
+          # 1. Parse the global configuration metadata from pg2Info.txt
+          EXPECTED_CODE=$(grep "# MONTHLY_CODE:" pg2Info.txt | head -n1 | sed 's/# MONTHLY_CODE: //g' | tr -d '[:space:]')
+          MAX_LIMIT=$(grep "# MAX_REPOS:" pg2Info.txt | head -n1 | sed 's/# MAX_REPOS: //g' | tr -d '[:space:]')
+          REPO_PREFIX=$(grep "# PREFIX:" pg2Info.txt | head -n1 | sed 's/# PREFIX: //g' | tr -d '[:space:]')
+          TEMPLATE_NAME=$(grep "# TEMPLATE:" pg2Info.txt | head -n1 | sed 's/# TEMPLATE: //g' | tr -d '[:space:]')
+          ORG_NAME=$(grep "# ORG_NAME:" pg2Info.txt | head -n1 | sed 's/# ORG_NAME: //g' | tr -d '[:space:]')
+          
+          # Calculate the target expected cryptographic hash
+          EXPECTED_HASH=$(echo -n "$EXPECTED_CODE" | sha256sum | awk '{print $1}')
+
+          # 2. Parse the code the student entered into the issue form field
+          STUDENT_CODE=$(echo "$ISSUE_BODY" | sed -n '/### Claim Code/{n;p;}' | tr -d '[:space:]')
+          if [ -z "$STUDENT_CODE" ] || [ "$STUDENT_CODE" = "_No_response_" ]; then
+            STUDENT_CODE=$(echo "$ISSUE_BODY" | sed -n '/### Claim Code/{n;n;p;}' | tr -d '[:space:]')
           fi
-          
-          # 2. Normalize to lowercase and cryptographically hash the student email
-          CLEAN_EMAIL=$(echo "$STUDENT_EMAIL" | tr '[:upper:]' '[:lower:]')
-          STUDENT_HASH=$(echo -n "$CLEAN_EMAIL" | sha256sum | awk '{print $1}')          
-          
-          # ==================== PRIVACY REDACTION START ====================
-          # Create an obfuscated version of the issue body, swapping plaintext for the hash
-          # This replaces the student's actual email text with their scrambled hash block
-          REDACTED_BODY=$(echo "$ISSUE_BODY" | sed "s/$STUDENT_EMAIL/[REDACTED_HASH: $STUDENT_HASH]/g")
-          
-          # Push the redacted text back to GitHub to instantly overwrite the public text record
-          gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$REDACTED_BODY"
-          # ==================== PRIVACY REDACTION END ====================
+          STUDENT_HASH=$(echo -n "$STUDENT_CODE" | sha256sum | awk '{print $1}')
 
-                    
-          echo "Checking if email hash exists on the course roster..."
-          
-          # 3. Look for the generated hash inside our public pg2Info.txt file
-          if grep -Fxq "$STUDENT_HASH" pg2Info.txt; then
-            echo "CODE_VALID=true" >> $GITHUB_ENV
-            
-            # 4. Extract the global prefix from the first line of pg2Info.txt            
-            REPO_PREFIX=$(grep "# PREFIX:" pg2Info.txt | head -n1 | sed 's/# PREFIX: //g' | tr -d '[:space:]')
-            
-            # 5. Extract the template repository name from the second line of codes.txt
-            TEMPLATE_NAME=$(grep "# TEMPLATE:" pg2Info.txt | head -n1 | sed 's/# TEMPLATE: //g' | tr -d '[:space:]')
-            
-            # Form the custom dynamic repository name
-            STUDENT_USER="${{ github.event.issue.user.login }}"
-            RESOLVED_REPO_NAME="${REPO_PREFIX}${STUDENT_USER}"
-            
-            # Save the name into the global environment scope for downstream steps
-            echo "DYNAMIC_REPO_NAME=$RESOLVED_REPO_NAME" >> $GITHUB_ENV
-            echo "DYNAMIC_TEMPLATE_NAME=$TEMPLATE_NAME" >> $GITHUB_ENV
+          # 3. Security Check: Validate Passcode Hash
+          if [ "$STUDENT_HASH" != "$EXPECTED_HASH" ]; then
+            echo "AUTH_FAILED=true" >> $GITHUB_ENV
+            echo "::error::Invalid monthly class claim code submitted."
+            exit 0
+          fi
+          echo "AUTH_FAILED=false" >> $GITHUB_ENV
 
-            echo "Validated student workspace target name: $RESOLVED_REPO_NAME"
-            echo "Target starter code template: $TEMPLATE_NAME"
-            
-            # Permanently delete the matched email hash string from the file
-            sed -i "/^$STUDENT_HASH$/d" pg2Info.txt
+          # 4. Capacity Check: Count how many repositories already use our prefix inside the Org
+          # This queries all repos in your Org, filters for names starting with your prefix, and counts the rows
+          CURRENT_COUNT=$(gh repo list $ORG_NAME --limit 1000 --json name --jq ".[].name" | grep "^$REPO_PREFIX" | wc -l | tr -d '[:space:]')
+          echo "Active repositories using prefix '$REPO_PREFIX': $CURRENT_COUNT / $MAX_LIMIT"
 
+          if [ "$CURRENT_COUNT" -ge "$MAX_LIMIT" ]; then
+            echo "LIMIT_EXCEEDED=true" >> $GITHUB_ENV
+            echo "::error::Class capacity seat registration limit reached."
           else
-            echo "CODE_VALID=false" >> $GITHUB_ENV
-            echo "::error::Submitted email is not on the roster or has already registered."
+            echo "LIMIT_EXCEEDED=false" >> $GITHUB_ENV
+            
+            # Map out global workspace names for downstream creation steps
+            STUDENT_USER="${{ github.event.issue.user.login }}"
+            echo "DYNAMIC_REPO_NAME=${REPO_PREFIX}${STUDENT_USER}" >> $GITHUB_ENV
+            echo "DYNAMIC_TEMPLATE_NAME=$TEMPLATE_NAME" >> $GITHUB_ENV
+            echo "DYNAMIC_ORG_NAME=$ORG_NAME" >> $GITHUB_ENV
           fi
-
-
-      - name: Burn Code and Commit Changes
-        if: env.CODE_VALID == 'true'
-        run: |
-          # Configure local identity settings to save the modified pg2Info.txt file
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@://github.com"
           
-          # Track, record, and push the updated list back to GitHub
-          git add pg2Info.txt
-          git commit -m "Burn claim code used by ${{ github.event.issue.user.login }}"
-          git push
 
-      - name: Handle Invalid Claim Code
-        if: env.CODE_VALID == 'false'
+      - name: Handle Invalid Passcode
+        if: env.AUTH_FAILED == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "❌ **Repository Creation Failed:** The claim code you entered is invalid or has already been used by another student. Please double-check your assigned code and try opening a new issue."
+          gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "❌ **Repository Creation Failed:** The monthly claim code you entered is incorrect. Please verify the code from the course module and try opening a new issue."
+          gh issue close $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --reason "not_planned"
+          exit 1
+
+      - name: Handle Cap Limit Exceeded
+        if: env.LIMIT_EXCEEDED == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "🛑 **Seat Capacity Limit Reached:** All available student workspaces for this active assignment cycle have already been claimed. Please message your instructor or TA directly to request an override allocation seat."
           gh issue close $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --reason "not_planned"
           exit 1
 
@@ -105,7 +96,7 @@ jobs:
         id: repo_check
         env:
           GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
-          ORG: "FullSailGameStudies"
+          ORG: ${{ env.DYNAMIC_ORG_NAME }}
           NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
         run: |
           # Check if the repository can be resolved by the GitHub CLI
@@ -121,7 +112,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          ORG: "FullSailGameStudies"
+          ORG: ${{ env.DYNAMIC_ORG_NAME }}
           STUDENT: ${{ github.event.issue.user.login }}
           NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
         run: |
@@ -142,7 +133,7 @@ jobs:
         # This step only executes if the passcode is correct AND the repo doesn't exist yet
         env:
           GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
-          ORG: "FullSailGameStudies"
+          ORG: ${{ env.DYNAMIC_ORG_NAME }}
           TEMPLATE_REPO: ${{ env.DYNAMIC_TEMPLATE_NAME }}
           STUDENT: ${{ github.event.issue.user.login }}
           NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
@@ -182,7 +173,7 @@ jobs:
       - name: Initialize Feedback Branch and PR
         env:
           GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
-          ORG: "FullSailGameStudies"
+          ORG: ${{ env.DYNAMIC_ORG_NAME }}
           NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
         run: |
           git config --global user.name "github-actions[bot]"
@@ -211,7 +202,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          ORG: "FullSailGameStudies"
+          ORG: ${{ env.DYNAMIC_ORG_NAME }}
           STUDENT: ${{ github.event.issue.user.login }}
           NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
         run: |

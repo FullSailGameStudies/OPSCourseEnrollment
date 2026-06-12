@@ -1,5 +1,5 @@
 name: Request Assignment Repository
-description: Instantly provision your private assignment repository using your official student email address.
+description: Instantly provision your private assignment repository using the shared monthly claim code.
 title: "Private Repository Request"
 labels: ["provision-repo"]
 body:
@@ -7,11 +7,11 @@ body:
     attributes:
       value: |
         ### Welcome to the PG2 Course!
-        Clicking submit below will automatically create your personal repository under our organization.
+        Clicking submit below will instantly check our class capacity limits and generate your personal, private workspace under our organization.
   - type: input
-    id: student_email
+    id: passcode
     attributes:
-      label: University Email Address
-      placeholder: Enter your Full Sail student email address.
+      label: Claim Code
+      placeholder: Enter the active monthly claim code provided by your instructor.
     validations:
       required: true
