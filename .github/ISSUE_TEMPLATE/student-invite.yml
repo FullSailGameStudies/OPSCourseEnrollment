@@ -1,5 +1,5 @@
 name: Request Assignment Repository
-description: Instantly provision your private assignment repository using the shared monthly claim code.
+description: Instantly provision your private assignment repository using the shared monthly claim code and assignment selection.
 title: "Private Repository Request"
 labels: ["provision-repo"]
 body:
@@ -8,6 +8,20 @@ body:
       value: |
         ### Welcome to the PG2 Course!
         Clicking submit below will instantly check our class capacity limits and generate your personal, private workspace under our organization.
+  - type: dropdown
+    id: assignment
+    attributes:
+      label: Assignment
+      description: Select the assignment you want to enroll in.
+      options:
+        - OPS_Lab3
+        - OPS_Lab4
+        - OPS_Lab5
+        - OPS_Lab6
+        - OPS_Lab7
+      default: 0
+    validations:
+      required: true
   - type: input
     id: passcode
     attributes:

@@ -30,78 +30,49 @@ jobs:
         run: |
           # 1. Parse the global configuration metadata from Info.txt
           EXPECTED_CODE="ILoveOPS123!"
-          EXPECTED_HASH=$(grep "# MONTHLY_CODE:" pg2Info.txt | head -n1 | sed 's/# MONTHLY_CODE: //g' | tr -d '[:space:]')
-          MAX_LIMIT=$(grep "# MAX_REPOS:" Info.txt | head -n1 | sed 's/# MAX_REPOS: //g' | tr -d '[:space:]')
-          REPO_PREFIX=$(grep "# PREFIX:" Info.txt | head -n1 | sed 's/# PREFIX: //g' | tr -d '[:space:]')
-          TEMPLATE_NAME=$(grep "# TEMPLATE:" Info.txt | head -n1 | sed 's/# TEMPLATE: //g' | tr -d '[:space:]')
+          ASSIGNMENT=$(grep "# ASSIGNMENT:" Info.txt | head -n1 | sed 's/# ASSIGNMENT: //g' | tr -d '[:space:]')
+          TEMPLATE_NAME=$(jq -r ".\"$ASSIGNMENT\"" Info.txt)
           ORG_NAME=$(grep "# ORG_NAME:" Info.txt | head -n1 | sed 's/# ORG_NAME: //g' | tr -d '[:space:]')
           
           # Calculate the target expected cryptographic hash
-          # EXPECTED_HASH=$(echo -n "$EXPECTED_CODE" | sha256sum | awk '{print $1}')
-
-          # 2. Parse the code the student entered into the issue form field
-          STUDENT_CODE=$(echo "$ISSUE_BODY" | sed -n '/### Claim Code/{n;p;}' | tr -d '[:space:]')
-          if [ -z "$STUDENT_CODE" ] || [ "$STUDENT_CODE" = "_No_response_" ]; then
-            STUDENT_CODE=$(echo "$ISSUE_BODY" | sed -n '/### Claim Code/{n;n;p;}' | tr -d '[:space:]')
+          EXPECTED_HASH=$(echo -n "$EXPECTED_CODE" | sha256sum | awk '{print $1}')
+          
+          # 2. Parse the assignment the student entered into the issue form field
+          STUDENT_ASSIGNMENT=$(echo "$ISSUE_BODY" | sed -n '/### Assignment/{n;p;}' | tr -d '[:space:]')
+          if [ -z "$STUDENT_ASSIGNMENT" ] || [ "$STUDENT_ASSIGNMENT" = "_No_response_" ]; then
+            STUDENT_ASSIGNMENT=$(echo "$ISSUE_BODY" | sed -n '/### Assignment/{n;n;p;}' | tr -d '[:space:]')
           fi
-          STUDENT_HASH=$(echo -n "$STUDENT_CODE" | sha256sum | awk '{print $1}')
 
-          
-          # Create an obfuscated version of the issue body, removing the claim code
-          REDACTED_BODY=$(echo "$ISSUE_BODY" | sed "s/$STUDENT_CODE/[used claim code]/g")
-          
-          # overwrite the public text record to protect claim code
-          gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$REDACTED_BODY"          
-
-
-          # 3. Security Check: Validate Passcode Hash
-          if [ "$STUDENT_HASH" != "$EXPECTED_HASH" ]; then
+          # 3. Validate Assignment Name and Passcode
+          if [ "$STUDENT_ASSIGNMENT" != "OPS_Lab3" ] && [ "$STUDENT_ASSIGNMENT" != "OPS_Lab4" ] && [ "$STUDENT_ASSIGNMENT" != "OPS_Lab5" ] && [ "$STUDENT_ASSIGNMENT" != "OPS_Lab6" ] && [ "$STUDENT_ASSIGNMENT" != "OPS_Lab7" ]; then
             echo "AUTH_FAILED=true" >> $GITHUB_ENV
-            echo "::error::Invalid monthly class claim code submitted."
-            echo $STUDENT_HASH
-            echo $EXPECTED_HASH
+            echo "::error::Invalid assignment selected."
+            exit 0
+          fi
+          
+          if [ "$EXPECTED_HASH" != "$(echo -n "$STUDENT_ASSIGNMENT ILoveOPS123!" | sha256sum | awk '{print $1}')" ]; then
+            echo "AUTH_FAILED=true" >> $GITHUB_ENV
+            echo "::error::Invalid passcode for selected assignment."
             exit 0
           fi
           echo "AUTH_FAILED=false" >> $GITHUB_ENV
 
-          # 4. Capacity Check: Count how many repositories already use our prefix inside the Org  
-          # This pulls up to 1000 repos from the Org and uses grep to count names starting with the repo prefix
-          CURRENT_COUNT=$(GH_TOKEN="$GH_TOKEN" gh repo list "$ORG_NAME" --limit 1000 --json name --jq '.[].name' | grep "^$REPO_PREFIX" | wc -l | tr -d '[:space:]')
-       
+          # Map out global workspace names for downstream creation steps
+          STUDENT_USER="${{ github.event.issue.user.login }}"
+          # Construct repo name: OPS_<MONTH_3_LETTER>_Lab<NUMBER>_<USER_NAME>
+          MONTH_ABBREV=$(date +"%b" | tr '[:lower:]' '[:upper:]')
+          LAB_NUMBER=$(echo "$ASSIGNMENT" | sed 's/OPS_Lab//g')
+          echo "DYNAMIC_REPO_NAME=OPS_${MONTH_ABBREV}_Lab${LAB_NUMBER}_${STUDENT_USER}" >> $GITHUB_ENV
+          echo "DYNAMIC_TEMPLATE_NAME=$TEMPLATE_NAME" >> $GITHUB_ENV
+          echo "DYNAMIC_ORG_NAME=$ORG_NAME" >> $GITHUB_ENV
 
-          echo "Active repositories using prefix '$REPO_PREFIX': $CURRENT_COUNT / $MAX_LIMIT"
-
-          if [ "$CURRENT_COUNT" -ge "$MAX_LIMIT" ]; then
-            echo "LIMIT_EXCEEDED=true" >> $GITHUB_ENV
-            echo "::error::Class capacity seat registration limit reached."
-          else
-            echo "LIMIT_EXCEEDED=false" >> $GITHUB_ENV
-            
-            # Map out global workspace names for downstream creation steps
-            STUDENT_USER="${{ github.event.issue.user.login }}"
-            echo "DYNAMIC_REPO_NAME=${REPO_PREFIX}${STUDENT_USER}" >> $GITHUB_ENV
-            echo "DYNAMIC_TEMPLATE_NAME=$TEMPLATE_NAME" >> $GITHUB_ENV
-            echo "DYNAMIC_ORG_NAME=$ORG_NAME" >> $GITHUB_ENV
-          fi
-          
-
-      - name: Handle Invalid Passcode
+      - name: Handle Invalid Assignment
         if: env.AUTH_FAILED == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "❌ **Repository Creation Failed:** The monthly claim code you entered is incorrect. Please verify the code from the course module and try opening a new issue."
-          gh issue close $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --reason "not_planned"
-          exit 1
-
-      - name: Handle Cap Limit Exceeded
-        if: env.LIMIT_EXCEEDED == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-        run: |
-          gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "🛑 **Seat Capacity Limit Reached:** All available student workspaces for this active assignment cycle have already been claimed. Please message your instructor or TA directly to request an override allocation seat."
+          gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "❌ **Repository Creation Failed:** The assignment you selected is invalid. Please choose from OPS_Lab3, OPS_Lab4, OPS_Lab5, OPS_Lab6, or OPS_Lab7 and try opening a new issue."
           gh issue close $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --reason "not_planned"
           exit 1
 

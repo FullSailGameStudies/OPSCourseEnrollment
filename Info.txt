@@ -1,5 +1,5 @@
 # ORG_NAME: FullSailGameStudies
-# PREFIX: pg2-2607c-
-# TEMPLATE: PG2StudentRepo26.6
+# ASSIGNMENT: OPS_Lab3
+# TEMPLATES: '{"OPS_Lab3": "PG2StudentRepo26.6", "OPS_Lab4": "PG2StudentRepo26.6", "OPS_Lab5": "PG2StudentRepo26.6", "OPS_Lab6": "PG2StudentRepo26.6", "OPS_Lab7": "PG2StudentRepo26.6"}'
 # MONTHLY_CODE: 1d39a1077910f88cb84fc2b73c5efa09577868b68acdd496731cc65a33a99e17
 # MAX_REPOS: 5
