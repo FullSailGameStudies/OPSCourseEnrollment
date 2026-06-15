@@ -183,6 +183,16 @@ jobs:
             -f permission='write'
         shell: bash
 
+      - name: Set Repository Topic
+        if: env.REPO_EXISTS == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
+          ORG: ${{ env.DYNAMIC_ORG_NAME }}
+          NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
+        run: |
+          echo "Setting topic 'ops_student' on repository..."
+          gh repo edit "$ORG/$NEW_REPO_NAME" --add-topic "ops_student"
+
       - name: Initialize Feedback Branch and PR
         env:
           GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
