@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Enrollment Repository
-        # We must clone our own repo first to read and edit the pg2Info.txt file
+        # We must clone our own repo first to read and edit the Info.txt file
         uses: actions/checkout@v5
         with:
           token: ${{ secrets.ORG_ADMIN_TOKEN }}
@@ -28,13 +28,13 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
         run: |
-          # 1. Parse the global configuration metadata from pg2Info.txt
-          EXPECTED_HASH=$(grep "# MONTHLY_CODE:" pg2Info.txt | head -n1 | sed 's/# MONTHLY_CODE: //g' | tr -d '[:space:]')
+          # 1. Parse the global configuration metadata from Info.txt
           EXPECTED_CODE="ILoveOPS123!"
-          MAX_LIMIT=$(grep "# MAX_REPOS:" pg2Info.txt | head -n1 | sed 's/# MAX_REPOS: //g' | tr -d '[:space:]')
-          REPO_PREFIX=$(grep "# PREFIX:" pg2Info.txt | head -n1 | sed 's/# PREFIX: //g' | tr -d '[:space:]')
-          TEMPLATE_NAME=$(grep "# TEMPLATE:" pg2Info.txt | head -n1 | sed 's/# TEMPLATE: //g' | tr -d '[:space:]')
-          ORG_NAME=$(grep "# ORG_NAME:" pg2Info.txt | head -n1 | sed 's/# ORG_NAME: //g' | tr -d '[:space:]')
+          EXPECTED_HASH=$(grep "# MONTHLY_CODE:" pg2Info.txt | head -n1 | sed 's/# MONTHLY_CODE: //g' | tr -d '[:space:]')
+          MAX_LIMIT=$(grep "# MAX_REPOS:" Info.txt | head -n1 | sed 's/# MAX_REPOS: //g' | tr -d '[:space:]')
+          REPO_PREFIX=$(grep "# PREFIX:" Info.txt | head -n1 | sed 's/# PREFIX: //g' | tr -d '[:space:]')
+          TEMPLATE_NAME=$(grep "# TEMPLATE:" Info.txt | head -n1 | sed 's/# TEMPLATE: //g' | tr -d '[:space:]')
+          ORG_NAME=$(grep "# ORG_NAME:" Info.txt | head -n1 | sed 's/# ORG_NAME: //g' | tr -d '[:space:]')
           
           # Calculate the target expected cryptographic hash
           # EXPECTED_HASH=$(echo -n "$EXPECTED_CODE" | sha256sum | awk '{print $1}')
