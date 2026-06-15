@@ -30,6 +30,7 @@ jobs:
         run: |
           # 1. Parse the global configuration metadata from pg2Info.txt
           EXPECTED_HASH=$(grep "# MONTHLY_CODE:" pg2Info.txt | head -n1 | sed 's/# MONTHLY_CODE: //g' | tr -d '[:space:]')
+          EXPECTED_CODE="ILoveOPS123!"
           MAX_LIMIT=$(grep "# MAX_REPOS:" pg2Info.txt | head -n1 | sed 's/# MAX_REPOS: //g' | tr -d '[:space:]')
           REPO_PREFIX=$(grep "# PREFIX:" pg2Info.txt | head -n1 | sed 's/# PREFIX: //g' | tr -d '[:space:]')
           TEMPLATE_NAME=$(grep "# TEMPLATE:" pg2Info.txt | head -n1 | sed 's/# TEMPLATE: //g' | tr -d '[:space:]')
