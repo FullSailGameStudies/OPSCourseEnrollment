@@ -57,6 +57,8 @@ jobs:
           if [ "$STUDENT_HASH" != "$EXPECTED_HASH" ]; then
             echo "AUTH_FAILED=true" >> $GITHUB_ENV
             echo "::error::Invalid monthly class claim code submitted."
+            echo $STUDENT_HASH
+            echo $EXPECTED_HASH
             exit 0
           fi
           echo "AUTH_FAILED=false" >> $GITHUB_ENV
