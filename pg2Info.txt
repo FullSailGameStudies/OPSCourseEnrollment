@@ -1,5 +1,5 @@
 # ORG_NAME: FullSailGameStudies
 # PREFIX: pg2-2607c-
 # TEMPLATE: PG2StudentRepo26.6
-# MONTHLY_CODE: c22dbcadc88e2634b9e33ea68feb9ec66faa76edec03e67d8897576ebd1b1913
+# MONTHLY_CODE: 1ffd18bf7782e99bcba20f9ea5e4186cf7733a4bd3cd44d6ccb5b772bd5ffbfc
 # MAX_REPOS: 62
