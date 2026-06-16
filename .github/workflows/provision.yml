@@ -29,14 +29,14 @@ jobs:
           GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
         run: |
           # 1. Parse the global configuration metadata from pg2Info.txt
-          EXPECTED_CODE=$(grep "# MONTHLY_CODE:" pg2Info.txt | head -n1 | sed 's/# MONTHLY_CODE: //g' | tr -d '[:space:]')
+          EXPECTED_HASH=$(grep "# MONTHLY_CODE:" pg2Info.txt | head -n1 | sed 's/# MONTHLY_CODE: //g' | tr -d '[:space:]')
           MAX_LIMIT=$(grep "# MAX_REPOS:" pg2Info.txt | head -n1 | sed 's/# MAX_REPOS: //g' | tr -d '[:space:]')
           REPO_PREFIX=$(grep "# PREFIX:" pg2Info.txt | head -n1 | sed 's/# PREFIX: //g' | tr -d '[:space:]')
           TEMPLATE_NAME=$(grep "# TEMPLATE:" pg2Info.txt | head -n1 | sed 's/# TEMPLATE: //g' | tr -d '[:space:]')
           ORG_NAME=$(grep "# ORG_NAME:" pg2Info.txt | head -n1 | sed 's/# ORG_NAME: //g' | tr -d '[:space:]')
           
           # Calculate the target expected cryptographic hash
-          EXPECTED_HASH=$(echo -n "$EXPECTED_CODE" | sha256sum | awk '{print $1}')
+          # EXPECTED_HASH=$(echo -n "$EXPECTED_CODE" | sha256sum | awk '{print $1}')
 
           # 2. Parse the code the student entered into the issue form field
           STUDENT_CODE=$(echo "$ISSUE_BODY" | sed -n '/### Claim Code/{n;p;}' | tr -d '[:space:]')
@@ -44,6 +44,14 @@ jobs:
             STUDENT_CODE=$(echo "$ISSUE_BODY" | sed -n '/### Claim Code/{n;n;p;}' | tr -d '[:space:]')
           fi
           STUDENT_HASH=$(echo -n "$STUDENT_CODE" | sha256sum | awk '{print $1}')
+
+          
+          # Create an obfuscated version of the issue body, removing the claim code
+          REDACTED_BODY=$(echo "$ISSUE_BODY" | sed "s/$STUDENT_EMAIL/[used claim code]/g")
+          
+          # overwrite the public text record to protect claim code
+          gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$REDACTED_BODY"          
+
 
           # 3. Security Check: Validate Passcode Hash
           if [ "$STUDENT_HASH" != "$EXPECTED_HASH" ]; then
