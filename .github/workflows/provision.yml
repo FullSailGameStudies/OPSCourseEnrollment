@@ -47,7 +47,7 @@ jobs:
 
           
           # Create an obfuscated version of the issue body, removing the claim code
-          REDACTED_BODY=$(echo "$ISSUE_BODY" | sed "s/$STUDENT_EMAIL/[used claim code]/g")
+          REDACTED_BODY=$(echo "$ISSUE_BODY" | sed "s/$STUDENT_CODE/[used claim code]/g")
           
           # overwrite the public text record to protect claim code
           gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$REDACTED_BODY"          
