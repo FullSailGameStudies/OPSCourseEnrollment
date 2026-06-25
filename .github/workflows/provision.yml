@@ -4,18 +4,21 @@ on:
   issues:
     types: [opened]
 
+permissions:
+  issues: write
+  contents: read
 
 jobs:
   create-repo:
-    # if: contains(github.event.issue.labels.*.name, 'provision-repo')
+    if: contains(github.event.issue.labels.*.name, 'provision-repo')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Enrollment Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           token: ${{ secrets.ORG_ADMIN_TOKEN }}
 
-      - name: Parse and Validate Student Email Hash
+      - name: Parse and Validate form data
         id: code_check
         env:
           ISSUE_BODY: ${{ github.event.issue.body }}
@@ -26,28 +29,63 @@ jobs:
           ORG_NAME="FullSailGameStudies"
 
           # Expected passcode hash (SHA-256)
-          EXPECTED_HASH="1d39a1077910f88cb84fc2b73c5efa09577868b68acdd496731cc65a33a99e17"
+          EXPECTED_HASH="0464d30442fec5754cd49dbec40e2242a0962b7470e4d37116852b14284be3c8"
 
-          # Redact claim code in the issue body (if applicable)
-          REDACTED_BODY=$(echo "$ISSUE_BODY" | sed "s/$STUDENT_CODE/[used claim code]/g")
+          # Extract the student's email from the issue body and derive the username (part before the @)
+          STUDENT_EMAIL=$(echo "$ISSUE_BODY" | grep -oiE '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}' | head -n1)
+          if [ -z "$STUDENT_EMAIL" ]; then
+            echo "AUTH_FAILED=true" >> $GITHUB_ENV
+            echo "::error::Could not find a valid email in the issue body."
+            exit 0
+          fi
+          STUDENT_EMAIL_USERNAME="${STUDENT_EMAIL%%@*}"
+          echo "STUDENT_EMAIL_USERNAME=$STUDENT_EMAIL_USERNAME" >> $GITHUB_ENV
+
+          # Normalize the full email (trim whitespace/carriage returns and lowercase) for hashing
+          STUDENT_EMAIL_NORMALIZED=$(echo "$STUDENT_EMAIL" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')
+          echo "STUDENT_EMAIL_NORMALIZED=$STUDENT_EMAIL_NORMALIZED" >> $GITHUB_ENV
+
+          # Hash the normalized email and verify it against hash.db
+          STUDENT_EMAIL_HASH=$(printf '%s' "$STUDENT_EMAIL_NORMALIZED" | sha256sum | awk '{print $1}')
+          if ! grep -q "$STUDENT_EMAIL_HASH" hash.db; then
+            echo "AUTH_FAILED=true" >> $GITHUB_ENV
+            echo "::error::Could not match your fullsail email, contact your instructor!"
+            exit 0
+          fi
+
+          # Extract the claim code submitted by the student (value following the "Claim Code" heading)
+          STUDENT_CODE=$(echo "$ISSUE_BODY" | awk '/^###[[:space:]]+Claim Code/{getline; while ($0 ~ /^[[:space:]]*$/) getline; print; exit}')
+          # Trim leading/trailing whitespace and carriage returns
+          STUDENT_CODE=$(echo "$STUDENT_CODE" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          if [ -z "$STUDENT_CODE" ]; then
+            echo "AUTH_FAILED=true" >> $GITHUB_ENV
+            echo "::error::Could not find a claim code in the issue body."
+            exit 0
+          fi
+
+          # Hash the trimmed passcode with SHA-256 for comparison
+          STUDENT_HASH=$(printf '%s' "$STUDENT_CODE" | sha256sum | awk '{print $1}')
+
+          # Redact claim code in the issue body using a fixed-string replacement
+          REDACTED_BODY=${ISSUE_BODY//"$STUDENT_CODE"/[used claim code]}
           gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$REDACTED_BODY"
 
           # Validate the passcode hash
           if [ "$STUDENT_HASH" != "$EXPECTED_HASH" ]; then
             echo "AUTH_FAILED=true" >> $GITHUB_ENV
             echo "::error::Invalid passcode."
-            exit 1
+            exit 0
           fi
           echo "AUTH_FAILED=false" >> $GITHUB_ENV
           echo "DYNAMIC_ORG_NAME=$ORG_NAME" >> $GITHUB_ENV
 
       - name: Handle Invalid Passcode
-        if: env.AUTH_FAILED == 'true'
+        if: always() && env.AUTH_FAILED == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "❌ **Repository Creation Failed:**."
+          gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "❌ **Repository Creation Failed:** Invalid or missing claim code."
           gh issue close $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --reason "not_planned"
           exit 2
 
@@ -57,7 +95,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
           ORG: ${{ env.DYNAMIC_ORG_NAME }}
-          STUDENT: ${{ github.event.issue.user.login }}
+          STUDENT_EMAIL_USERNAME: ${{ env.STUDENT_EMAIL_USERNAME }}
+          STUDENT_GITHUB_LOGIN: ${{ github.event.issue.user.login }}
         run: |
           MONTH_ABBREV=$(date +"%b" | tr '[:lower:]' '[:upper:]')
           LABS="3 4 5 6 7"
@@ -69,7 +108,7 @@ jobs:
 
           for N in $LABS; do
             TEMPLATE_REPO="OPS_Lab${N}"
-            NEW_REPO_NAME="OPS_${MONTH_ABBREV}_Lab${N}_${STUDENT}"
+            NEW_REPO_NAME="OPS_${MONTH_ABBREV}_Lab${N}_${STUDENT_EMAIL_USERNAME}"
 
             # Skip creation if the student already has this repo
             if gh repo view "$ORG/$NEW_REPO_NAME" > /dev/null 2>&1; then
@@ -99,11 +138,11 @@ jobs:
             done
             sleep 5
 
-            echo "Adding student $STUDENT as a collaborator..."
+            echo "Adding student $STUDENT_GITHUB_LOGIN as a collaborator..."
             gh api \
               --method PUT \
               -H "Accept: application/vnd.github+json" \
-              /repos/$ORG/$NEW_REPO_NAME/collaborators/$STUDENT \
+              /repos/$ORG/$NEW_REPO_NAME/collaborators/$STUDENT_GITHUB_LOGIN \
               -f permission='write'
 
             echo "Setting topics..."
@@ -117,16 +156,15 @@ jobs:
               cd "$NEW_REPO_NAME"
               git checkout main
               git checkout -b assignment
-              git push origin assignment
               git commit --allow-empty -m "Initialize assignment branch"
-              git push origin main
+              git push origin assignment
             )
             gh pr create \
               --repo "$ORG/$NEW_REPO_NAME" \
               --title "Grading and Feedback" \
               --body "This Pull Request tracks your progress. Instructors will leave reviews here. Do not close or merge." \
-              --base "assignment" \
-              --head "main"
+              --base "main" \
+              --head "assignment"
 
             SUMMARY="${SUMMARY}- https://github.com/${ORG}/${NEW_REPO_NAME}\n"
           done
@@ -142,11 +180,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          STUDENT: ${{ github.event.issue.user.login }}
+          STUDENT_GITHUB_LOGIN: ${{ github.event.issue.user.login }}
         run: |
           gh issue comment $ISSUE_NUMBER \
             --repo "$GITHUB_REPOSITORY" \
-            --body "@${STUDENT}, your private lab repositories have been configured:
+            --body "@${STUDENT_GITHUB_LOGIN}, your private lab repositories have been configured:
 
           ${PROVISION_SUMMARY}"
           gh issue close $ISSUE_NUMBER \

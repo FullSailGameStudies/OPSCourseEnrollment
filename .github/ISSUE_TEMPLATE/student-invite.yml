@@ -6,12 +6,20 @@ body:
   - type: markdown
     attributes:
       value: |
-        ### Welcome to the PG2 Course!
-        Clicking submit below will instantly check our class capacity limits and generate your personal, private workspace under our organization.
+        ### Welcome to the OPS Course!
+        Clicking submit below will generate your personal, private workspace under our organization.
+  - type: input
+    id: email
+    attributes:
+      label: Full Sail Email
+      description: Must be a valid Full Sail email address ending in student.fullsail.edu (e.g. yourname@student.fullsail.edu).
+      placeholder: yourname@student.fullsail.edu
+    validations:
+      required: true
   - type: input
     id: passcode
     attributes:
       label: Claim Code
-      placeholder: Enter the active monthly claim code provided by your instructor.
+      placeholder: Enter the passcode provided by your instructor.
     validations:
       required: true
