@@ -1,5 +1,5 @@
 name: Request Assignment Repository
-description: Instantly provision your private assignment repository using the shared monthly claim code.
+description: Instantly provision your private assignment repository using the shared monthly claim code and fullsail.edu.
 title: "Private Repository Request"
 labels: ["provision-repo"]
 body:
