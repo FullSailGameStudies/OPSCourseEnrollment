@@ -3,11 +3,7 @@ name: Provision Student Repository
 on:
   issues:
     types: [opened]
-  
-# Don't need this anymore since we're not updating the txt file, just reading it
-# concurrency:
-#   group: enrollment-queue
-#   cancel-in-progress: false # Forces GitHub to queue them sequentially to handle multiple students
+
 
 jobs:
   create-repo:
@@ -15,12 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Enrollment Repository
-        # We must clone our own repo first to read and edit the Info.txt file
         uses: actions/checkout@v5
         with:
           token: ${{ secrets.ORG_ADMIN_TOKEN }}
-          
-          
+
       - name: Parse and Validate Student Email Hash
         id: code_check
         env:
@@ -28,48 +22,23 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
         run: |
-          # 1. Parse the global configuration metadata from Info.txt
-          EXPECTED_CODE=""
-          ORG_NAME=$(grep "# ORG_NAME:" Info.txt | head -n1 | sed 's/# ORG_NAME: //g' | tr -d '[:space:]')
-          
-          # Calculate the target expected cryptographic hash
-          EXPECTED_HASH=$(echo -n "$EXPECTED_CODE" | sha256sum | awk '{print $1}')
+          # Hardcoded configuration
+          ORG_NAME="FullSailGameStudies"
 
-          # 2. Parse the code the student entered into the issue form field
-          STUDENT_CODE=$(echo "$ISSUE_BODY" | sed -n '/### Claim Code/{n;p;}' | tr -d '[:space:]')
-          if [ -z "$STUDENT_CODE" ] || [ "$STUDENT_CODE" = "_No_response_" ]; then
-            STUDENT_CODE=$(echo "$ISSUE_BODY" | sed -n '/### Claim Code/{n;n;p;}' | tr -d '[:space:]')
-          # 2. Parse the assignment the student entered into the issue form field
-          STUDENT_ASSIGNMENT=$(echo "$ISSUE_BODY" | sed -n '/### Assignment/{n;p;}' | tr -d '[:space:]')
-          if [ -z "$STUDENT_ASSIGNMENT" ] || [ "$STUDENT_ASSIGNMENT" = "_No_response_" ]; then
-            STUDENT_ASSIGNMENT=$(echo "$ISSUE_BODY" | sed -n '/### Assignment/{n;n;p;}' | tr -d '[:space:]')
-          fi
+          # Expected passcode hash (SHA-256)
+          EXPECTED_HASH="1d39a1077910f88cb84fc2b73c5efa09577868b68acdd496731cc65a33a99e17"
 
-          
-          # Create an obfuscated version of the issue body, removing the claim code
+          # Redact claim code in the issue body (if applicable)
           REDACTED_BODY=$(echo "$ISSUE_BODY" | sed "s/$STUDENT_CODE/[used claim code]/g")
-          
-          # overwrite the public text record to protect claim code
-          gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$REDACTED_BODY"          
+          gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$REDACTED_BODY"
 
-
-          # 3. Security Check: Validate Passcode Hash
+          # Validate the passcode hash
           if [ "$STUDENT_HASH" != "$EXPECTED_HASH" ]; then
             echo "AUTH_FAILED=true" >> $GITHUB_ENV
             echo "::error::Invalid passcode."
-            echo $STUDENT_HASH
-            echo $EXPECTED_HASH
             exit 1
           fi
           echo "AUTH_FAILED=false" >> $GITHUB_ENV
-
-          # Map out global workspace names for downstream creation steps
-          STUDENT_USER="${{ github.event.issue.user.login }}"
-          # Construct repo name: OPS_<MONTH_3_LETTER>_Lab<NUMBER>_<USER_NAME>
-          MONTH_ABBREV=$(date +"%b" | tr '[:lower:]' '[:upper:]')
-          LAB_NUMBER=$(echo "$ASSIGNMENT" | sed 's/OPS_Lab//g')
-          echo "DYNAMIC_REPO_NAME=OPS_${MONTH_ABBREV}_Lab${LAB_NUMBER}_${STUDENT_USER}" >> $GITHUB_ENV
-          echo "DYNAMIC_TEMPLATE_NAME=$TEMPLATE_NAME" >> $GITHUB_ENV
           echo "DYNAMIC_ORG_NAME=$ORG_NAME" >> $GITHUB_ENV
 
       - name: Handle Invalid Passcode
@@ -82,134 +51,104 @@ jobs:
           gh issue close $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --reason "not_planned"
           exit 2
 
-      - name: Check If Repository Already Exists
-        id: repo_check
-        env:
-          GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
-          ORG: ${{ env.DYNAMIC_ORG_NAME }}
-          NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
-        run: |
-          # Check if the repository can be resolved by the GitHub CLI
-          if gh repo view "$ORG/$NEW_REPO_NAME" > /dev/null 2>&1; then
-            echo "REPO_EXISTS=true" >> $GITHUB_ENV
-            echo "::warning::Repository $ORG/$NEW_REPO_NAME already exists. Skipping creation."
-          else
-            echo "REPO_EXISTS=false" >> $GITHUB_ENV
-          fi
-
-      - name: Handle Duplicate Repository Request
-        if: env.REPO_EXISTS == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          ORG: ${{ env.DYNAMIC_ORG_NAME }}
-          STUDENT: ${{ github.event.issue.user.login }}
-          NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
-        run: |
-          gh issue comment $ISSUE_NUMBER \
-            --repo "$GITHUB_REPOSITORY" \
-            --body "⚠️ @$STUDENT You have already requested an assignment repository for this project. 
-          
-          Your active private workspace is located here: **https://github.com/${ORG}/${NEW_REPO_NAME}**
-          
-          This duplicate request issue has been closed automatically to prevent overwriting your existing code."
-          
-          gh issue close $ISSUE_NUMBER \
-            --repo "$GITHUB_REPOSITORY" \
-            --reason "completed"
-          exit 0 # Exit gracefully without failing the workflow run entirely
-
-      - name: Generate and Invite
-        # This step only executes if the passcode is correct AND the repo doesn't exist yet
-        env:
-          GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
-          ORG: ${{ env.DYNAMIC_ORG_NAME }}
-          TEMPLATE_REPO: ${{ env.DYNAMIC_TEMPLATE_NAME }}
-          STUDENT: ${{ github.event.issue.user.login }}
-          NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
-        run: |
-          echo "Creating private repository $NEW_REPO_NAME from template..."
-          gh api \
-            --method POST \
-            -H "Accept: application/vnd.github+json" \
-            /repos/$ORG/$TEMPLATE_REPO/generate \
-            -f owner="$ORG" \
-            -f name="$NEW_REPO_NAME" \
-            -F private=true
-            
-          # Loops up to 15 times, waiting 3 seconds per attempt (45 seconds total max).
-          # It queries the branches endpoint. If it returns an empty bracket '[]' or errors out, it continues waiting.
-          for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-            BRANCH_CHECK=$(gh api /repos/$ORG/$NEW_REPO_NAME/branches --jq '.[].name' 2>/dev/null || true)
-            if [ -n "$BRANCH_CHECK" ]; then
-              echo "Repository files and branches initialized successfully!"
-              break
-            fi
-            echo "Template copy in progress... waiting 3 seconds (Attempt $i/15)"
-            sleep 3
-          done
-
-          # Add an extra safety cushion sleep to ensure files are fully flushed to disk
-          sleep 5
-
-          echo "Adding student $STUDENT as a collaborator..."
-          gh api \
-            --method PUT \
-            -H "Accept: application/vnd.github+json" \
-            /repos/$ORG/$NEW_REPO_NAME/collaborators/$STUDENT \
-            -f permission='write'
+      - name: Provision All Lab Repositories
+        if: env.AUTH_FAILED == 'false'
         shell: bash
-
-      - name: Set Repository Topic
-        if: env.REPO_EXISTS == 'false'
         env:
           GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
           ORG: ${{ env.DYNAMIC_ORG_NAME }}
-          NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
+          STUDENT: ${{ github.event.issue.user.login }}
         run: |
-          echo "Setting topic 'ops_student' on repository..."
-          gh repo edit "$ORG/$NEW_REPO_NAME" --add-topic "ops_student"
-          gh repo edit "$ORG/$NEW_REPO_NAME" --add-topic "not_graded"
+          MONTH_ABBREV=$(date +"%b" | tr '[:lower:]' '[:upper:]')
+          LABS="3 4 5 6 7"
 
-      - name: Initialize Feedback Branch and PR
-        env:
-          GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
-          ORG: ${{ env.DYNAMIC_ORG_NAME }}
-          NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
-        run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/${ORG}/${NEW_REPO_NAME}.git"
-          cd $NEW_REPO_NAME
-          
-          git checkout master
-          git checkout -b feedback
-          git push origin feedback
-          
-          # Create an empty commit so the PR has something to compare against          
-          git checkout master
-          git commit --allow-empty -m "Initialize assignment feedback environment"
-          git push origin master
-          
-          gh pr create \
-            --repo "$ORG/$NEW_REPO_NAME" \
-            --title "Grading and Feedback" \
-            --body "This Pull Request tracks your progress. Instructors will leave reviews here. Do not close or merge." \
-            --base "feedback" \
-            --head "master"
+
+          SUMMARY=""
+
+          for N in $LABS; do
+            TEMPLATE_REPO="OPS_Lab${N}"
+            NEW_REPO_NAME="OPS_${MONTH_ABBREV}_Lab${N}_${STUDENT}"
+
+            # Skip creation if the student already has this repo
+            if gh repo view "$ORG/$NEW_REPO_NAME" > /dev/null 2>&1; then
+              echo "::warning::Repository $ORG/$NEW_REPO_NAME already exists. Skipping."
+              SUMMARY="${SUMMARY}- https://github.com/${ORG}/${NEW_REPO_NAME} (already existed)\n"
+              continue
+            fi
+
+            echo "Creating private repository $NEW_REPO_NAME from template $TEMPLATE_REPO..."
+            gh api \
+              --method POST \
+              -H "Accept: application/vnd.github+json" \
+              /repos/$ORG/$TEMPLATE_REPO/generate \
+              -f owner="$ORG" \
+              -f name="$NEW_REPO_NAME" \
+              -F private=true
+
+            # Wait for the template copy to finish initializing branches (45s max)
+            for i in $(seq 1 15); do
+              BRANCH_CHECK=$(gh api /repos/$ORG/$NEW_REPO_NAME/branches --jq '.[].name' 2>/dev/null || true)
+              if [ -n "$BRANCH_CHECK" ]; then
+                echo "Repository files and branches initialized successfully!"
+                break
+              fi
+              echo "Template copy in progress... waiting 3 seconds (Attempt $i/15)"
+              sleep 3
+            done
+            sleep 5
+
+            echo "Adding student $STUDENT as a collaborator..."
+            gh api \
+              --method PUT \
+              -H "Accept: application/vnd.github+json" \
+              /repos/$ORG/$NEW_REPO_NAME/collaborators/$STUDENT \
+              -f permission='write'
+
+            echo "Setting topics..."
+            gh repo edit "$ORG/$NEW_REPO_NAME" --add-topic "ops_student"
+            gh repo edit "$ORG/$NEW_REPO_NAME" --add-topic "not_graded"
+
+            echo "Initializing assignment branch and PR..."
+            rm -rf "$NEW_REPO_NAME"
+            git clone "https://x-access-token:${GH_TOKEN}@github.com/${ORG}/${NEW_REPO_NAME}.git"
+            (
+              cd "$NEW_REPO_NAME"
+              git checkout main
+              git checkout -b assignment
+              git push origin assignment
+              git commit --allow-empty -m "Initialize assignment branch"
+              git push origin main
+            )
+            gh pr create \
+              --repo "$ORG/$NEW_REPO_NAME" \
+              --title "Grading and Feedback" \
+              --body "This Pull Request tracks your progress. Instructors will leave reviews here. Do not close or merge." \
+              --base "assignment" \
+              --head "main"
+
+            SUMMARY="${SUMMARY}- https://github.com/${ORG}/${NEW_REPO_NAME}\n"
+          done
+
+          {
+            echo "PROVISION_SUMMARY<<EOF"
+            printf "%b" "$SUMMARY"
+            echo "EOF"
+          } >> $GITHUB_ENV
 
       - name: Close Issue and Reply to Student
+        if: env.AUTH_FAILED == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          ORG: ${{ env.DYNAMIC_ORG_NAME }}
           STUDENT: ${{ github.event.issue.user.login }}
-          NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
         run: |
           gh issue comment $ISSUE_NUMBER \
             --repo "$GITHUB_REPOSITORY" \
-            --body "@${STUDENT}, Private repository successfully configured at **https://github.com/${ORG}/${NEW_REPO_NAME}**!"
+            --body "@${STUDENT}, your private lab repositories have been configured:
+
+          ${PROVISION_SUMMARY}"
           gh issue close $ISSUE_NUMBER \
             --repo "$GITHUB_REPOSITORY" \
             --reason "completed"
