@@ -12,6 +12,9 @@ jobs:
   create-repo:
     if: contains(github.event.issue.labels.*.name, 'provision-repo')
     runs-on: ubuntu-latest
+    env:
+      ORG_NAME: "FullSailGameStudies"
+      EXPECTED_HASH: "0464d30442fec5754cd49dbec40e2242a0962b7470e4d37116852b14284be3c8"
     steps:
       - name: Checkout Enrollment Repository
         uses: actions/checkout@v7
@@ -25,17 +28,12 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
         run: |
-          # Hardcoded configuration
-          ORG_NAME="FullSailGameStudies"
-
-          # Expected passcode hash (SHA-256)
-          EXPECTED_HASH="0464d30442fec5754cd49dbec40e2242a0962b7470e4d37116852b14284be3c8"
-
           # Extract the student's email from the issue body and derive the username (part before the @)
           STUDENT_EMAIL=$(echo "$ISSUE_BODY" | grep -oiE '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}' | head -n1)
           if [ -z "$STUDENT_EMAIL" ]; then
             echo "AUTH_FAILED=true" >> $GITHUB_ENV
-            echo "::error::Could not find a valid email in the issue body."
+            echo "FAILURE_REASON=No valid email address was found in the issue body. Please ensure your Full Sail email is included in the submission." >> $GITHUB_ENV
+            echo "::error::Check failed: No valid email address found in the issue body."
             exit 0
           fi
           STUDENT_EMAIL_USERNAME="${STUDENT_EMAIL%%@*}"
@@ -49,7 +47,8 @@ jobs:
           STUDENT_EMAIL_HASH=$(printf '%s' "$STUDENT_EMAIL_NORMALIZED" | sha256sum | awk '{print $1}')
           if ! grep -q "$STUDENT_EMAIL_HASH" hash.db; then
             echo "AUTH_FAILED=true" >> $GITHUB_ENV
-            echo "::error::Could not match your fullsail email, contact your instructor!"
+            echo "FAILURE_REASON=Your email was not found in the authorized student list. Contact your instructor to be added." >> $GITHUB_ENV
+            echo "::error::Check failed: Email hash not found in hash.db (student not authorized)."
             exit 0
           fi
 
@@ -59,25 +58,27 @@ jobs:
           STUDENT_CODE=$(echo "$STUDENT_CODE" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
           if [ -z "$STUDENT_CODE" ]; then
             echo "AUTH_FAILED=true" >> $GITHUB_ENV
-            echo "::error::Could not find a claim code in the issue body."
+            echo "FAILURE_REASON=No claim code was found in the issue body. Please ensure you have entered a claim code under the Claim Code heading." >> $GITHUB_ENV
+            echo "::error::Check failed: No claim code found in the issue body."
             exit 0
           fi
 
           # Hash the trimmed passcode with SHA-256 for comparison
           STUDENT_HASH=$(printf '%s' "$STUDENT_CODE" | sha256sum | awk '{print $1}')
 
-          # Redact claim code in the issue body using a fixed-string replacement
+          # Redact claim code and student email in the issue body using fixed-string replacement
           REDACTED_BODY=${ISSUE_BODY//"$STUDENT_CODE"/[used claim code]}
+          REDACTED_BODY=${REDACTED_BODY//"$STUDENT_EMAIL"/[redacted email]}
           gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$REDACTED_BODY"
 
           # Validate the passcode hash
           if [ "$STUDENT_HASH" != "$EXPECTED_HASH" ]; then
             echo "AUTH_FAILED=true" >> $GITHUB_ENV
-            echo "::error::Invalid passcode."
+            echo "FAILURE_REASON=The claim code you submitted is incorrect. Please verify your claim code in FSO and try again." >> $GITHUB_ENV
+            echo "::error::Check failed: Claim code hash does not match the expected passcode."
             exit 0
           fi
           echo "AUTH_FAILED=false" >> $GITHUB_ENV
-          echo "DYNAMIC_ORG_NAME=$ORG_NAME" >> $GITHUB_ENV
 
       - name: Handle Invalid Passcode
         if: always() && env.AUTH_FAILED == 'true'
@@ -85,8 +86,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "❌ **Repository Creation Failed:** Invalid or missing claim code."
-          gh issue close $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --reason "not_planned"
+          gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "❌ **Repository Creation Failed:** ${FAILURE_REASON}"
+          gh issue close $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --reason "not planned"
           exit 2
 
       - name: Provision All Lab Repositories
@@ -94,7 +95,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
-          ORG: ${{ env.DYNAMIC_ORG_NAME }}
+          ORG: ${{ env.ORG_NAME }}
           STUDENT_EMAIL_USERNAME: ${{ env.STUDENT_EMAIL_USERNAME }}
           STUDENT_GITHUB_LOGIN: ${{ github.event.issue.user.login }}
         run: |
@@ -146,8 +147,8 @@ jobs:
               -f permission='write'
 
             echo "Setting topics..."
-            gh repo edit "$ORG/$NEW_REPO_NAME" --add-topic "ops_student"
-            gh repo edit "$ORG/$NEW_REPO_NAME" --add-topic "not_graded"
+            gh repo edit "$ORG/$NEW_REPO_NAME" --add-topic "ops-student"
+            gh repo edit "$ORG/$NEW_REPO_NAME" --add-topic "not-graded"
 
             echo "Initializing assignment branch and PR..."
             rm -rf "$NEW_REPO_NAME"
