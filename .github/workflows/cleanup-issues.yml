@@ -12,10 +12,20 @@ jobs:
   redact-old-closed-issues:
     runs-on: ubuntu-latest
     continue-on-error: true
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    # env:
+    #   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
+      # ==================== GENERATE ORG BOT TOKEN ====================
+      - name: Generate GitHub App Installation Token
+        id: app_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      # ================================================================
       - name: Redact comments on closed issues older than 30 minutes
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
         run: |
           OLD_ISSUES=$(gh issue list \
             --repo "$GITHUB_REPOSITORY" \
