@@ -16,17 +16,25 @@ jobs:
       ORG_NAME: "FullSailGameStudies"
       EXPECTED_HASH: "0464d30442fec5754cd49dbec40e2242a0962b7470e4d37116852b14284be3c8"
     steps:
+      # ==================== GENERATE ORG BOT TOKEN ====================
+      - name: Generate GitHub App Installation Token
+        id: app_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      # ================================================================
       - name: Checkout Enrollment Repository
         uses: actions/checkout@v7
         with:
-          token: ${{ secrets.ORG_ADMIN_TOKEN }}
+          token: ${{ steps.app_token.outputs.token }}
 
       - name: Parse and Validate form data
         id: code_check
         env:
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
         run: |
           # Extract the student's email from the issue body and derive the username (part before the @)
           STUDENT_EMAIL=$(echo "$ISSUE_BODY" | grep -oiE '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}' | head -n1)
@@ -83,7 +91,7 @@ jobs:
       - name: Handle Invalid Passcode
         if: always() && env.AUTH_FAILED == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "❌ **Repository Creation Failed:** ${FAILURE_REASON}"
@@ -93,7 +101,7 @@ jobs:
       - name: Notify Student of Verification Success
         if: env.AUTH_FAILED == 'false'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "✅ Verification passed. Creating repos (be patient, this will take a few minutes)"
@@ -102,7 +110,7 @@ jobs:
         if: env.AUTH_FAILED == 'false'
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
           ORG: ${{ env.ORG_NAME }}
           STUDENT_EMAIL_USERNAME: ${{ env.STUDENT_EMAIL_USERNAME }}
           STUDENT_GITHUB_LOGIN: ${{ github.event.issue.user.login }}
@@ -187,7 +195,7 @@ jobs:
       - name: Close Issue and Reply to Student
         if: env.AUTH_FAILED == 'false'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           STUDENT_GITHUB_LOGIN: ${{ github.event.issue.user.login }}
         run: |
