@@ -18,9 +18,12 @@ jobs:
       # ==================== GENERATE ORG BOT TOKEN ====================
       - name: Generate GitHub App Installation Token
         id: app_token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
+#        with:
+#          app-id: ${{ secrets.APP_ID }}
+#          private-key: ${{ secrets.APP_PRIVATE_KEY }}
         with:
-          app-id: ${{ secrets.APP_ID }}
+          client-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
       # ================================================================
       - name: Redact comments on closed issues older than 30 minutes
