@@ -23,7 +23,66 @@ jobs:
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ env.ORG_NAME }}
       # ================================================================
+      # START DEBUG
+      - name: Verify Token Access to Template Repos
+#        if: env.AUTH_FAILED == 'false'
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          ORG: ${{ env.ORG_NAME }}
+        run: |
+          echo "=== Testing token access ==="
+          echo "Token identity (installation):"
+          # GitHub App installation tokens can't call /user — use /installation/repositories instead
+          gh api /installation/repositories --jq '.repositories | length' > /dev/null 2>&1 || {
+            echo "::error::Token cannot authenticate. Check APP_ID/APP_PRIVATE_KEY secrets and that the App is installed on the org."
+            exit 1
+          }
+          echo "  ✅ Token is valid (installation token)"
+
+          echo ""
+          echo "Checking template repos exist and are marked as templates:"
+          ALL_OK=true
+          for N in 3 4 5 6 7; do
+            RESULT=$(gh api /repos/$ORG/OPS_Lab${N} --jq '.is_template' 2>&1) || true
+            if [ "$RESULT" = "true" ]; then
+              echo "  ✅ $ORG/OPS_Lab${N} — is_template=true"
+            elif [ "$RESULT" = "false" ]; then
+              echo "  ❌ $ORG/OPS_Lab${N} — exists but NOT a template. Run: gh api --method PATCH /repos/$ORG/OPS_Lab${N} -f is_template=true"
+              ALL_OK=false
+            else
+              echo "  ❌ $ORG/OPS_Lab${N} — not accessible (404). App installation may not cover this repo."
+              ALL_OK=false
+            fi
+          done
+
+          if [ "$ALL_OK" != "true" ]; then
+            echo ""
+            echo "::error::One or more template repos are not accessible or not marked as templates."
+            exit 1
+          fi
+
+          echo ""
+          echo "=== Test: create a throwaway repo from OPS_Lab3 template ==="
+          TEST_REPO="OPS_TOKEN_TEST_$(date +%s)"
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            /repos/$ORG/OPS_Lab3/generate \
+            -f owner="$ORG" \
+            -f name="$TEST_REPO" \
+            -F private=true || {
+              echo "::error::Token cannot create repos from templates. Check that the App has Administration: write permission and is installed on all repos in the org."
+              exit 1
+            }
+          echo "  ✅ Created $TEST_REPO successfully"
+          echo "  Cleaning up..."
+          gh repo delete "$ORG/$TEST_REPO" --yes || echo "  ⚠️ Could not auto-delete test repo. Remove manually: $ORG/$TEST_REPO"
+          echo ""
+          echo "=== All token checks passed ==="
+      # END DEBUG
+
       - name: Checkout Enrollment Repository
         uses: actions/checkout@v7
         with:
