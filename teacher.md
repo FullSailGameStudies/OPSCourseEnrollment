@@ -90,10 +90,10 @@ Repositories are named with the pattern `OPS_<MONTH>_Lab<N>_<username>` (e.g. `O
 
 ```bash
 # Preview repos that will be deleted (dry run)
-gh repo list FullSailGameStudies --topic ops-student --json name --jq '.[].name' | grep '^OPS_JUN_Lab'
+gh repo list FullSailGameStudies --topic ops-student --json name --jq '.[].name' | grep '^OPS_JUN_LabX'
 
 # Delete all OPS_JUN_Lab* repos
-gh repo list FullSailGameStudies --topic ops-student --json name --jq '.[].name' | grep '^OPS_JUN_Lab' | xargs -I {} gh repo delete "FullSailGameStudies/{}" --yes
+gh repo list FullSailGameStudies --topic ops-student --json name --jq '.[].name' | grep '^OPS_JUN_LabX' # | xargs -I {} gh repo # delete "FullSailGameStudies/{}" # --yes
 ```
 
 Replace `JUN` with the three-letter month abbreviation you want to clean up (e.g. `JUL`, `AUG`, `SEP`).
@@ -112,7 +112,7 @@ gh issue list --repo FullSailGameStudies/OPSCourseEnrollment --state closed --js
 gh issue list --repo FullSailGameStudies/OPSCourseEnrollment --state closed --json number --jq 'length'
 
 # Delete all closed issues
-gh issue list --repo FullSailGameStudies/OPSCourseEnrollment --state closed --json number --jq '.[].number' | xargs -I {} gh issue delete {} --repo FullSailGameStudies/OPSCourseEnrollment --yes
+gh issue list --repo FullSailGameStudies/OPSCourseEnrollment --state closed --json number --jq '.[].number' | xargs -I {} gh issue # delete {} --repo FullSailGameStudies/OPSCourseEnrollment # --yes
 ```
 
 > **Warning:** `gh issue delete --yes` skips the confirmation prompt. Always review the list of closed issues before deleting. Deletion is permanent and cannot be undone.
