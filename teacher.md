@@ -73,10 +73,11 @@ Repositories are named with the pattern `OPS_<MONTH>_Lab<N>_<username>` (e.g. `O
 
 ```bash
 # Preview repos that will be cloned (dry run)
-gh repo list FullSailGameStudies --topic ops-student --topic not-graded --json name,url --jq '.[] | "\(.name)\t\(.url)"' | grep '^OPS_JUN_Lab'
+# gh repo list FullSailGameStudies --topic ops-student --topic not-graded --json url --jq '.[].url' | grep 'OPS_JUL_Lab3' # list via https url
+gh repo list FullSailGameStudies --topic ops-student --topic not-graded --json sshUrl --jq '.[].sshUrl' | grep 'OPS_JUL_Lab3'
 
-# Clone all OPS_JUN_Lab* repos into the current directory
-gh repo list FullSailGameStudies --topic ops-student --topic not-graded --json name,url --jq '.[] | "\(.name)\t\(.url)"' | grep '^OPS_JUN_Lab' | awk '{print $2}' | xargs -I {} gh repo clone {} .
+# Clone all OPS_JUN_Lab* repos into the current directory via SSH
+gh repo list FullSailGameStudies --topic ops-student --topic not-graded --json sshUrl --jq '.[].sshUrl' | grep 'OPS_JUL_Lab3' | xargs -I {} git clone {}
 ```
 
 Replace `JUN` with the three-letter month abbreviation you want to clone (e.g. `JUL`, `AUG`, `SEP`).
