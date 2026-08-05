@@ -42,11 +42,40 @@ printf '%s' "studentname@student.fullsail.edu" | tr -d '\r' | sed -e 's/^[[:spac
 Create a plain text file (e.g. `students.txt`) with one email per line, then run:
 
 ```bash
-TAG="AUG_S0"
-while IFS= read -r email; do
-  printf '%s' "$email" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' | sha256sum | awk -v tag="$TAG" '{print $1, tag}' >> hash.db
-done < students.txt
+TAG="AUG_S1"
+# Normalize all emails once (strip CR, trim whitespace, lowercase), then hash each line
+tr -d '\r' < students.txt \
+  | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+  | tr '[:upper:]' '[:lower:]' \
+  | while IFS= read -r email; do
+      printf '%s' "$email" | sha256sum | awk -v tag="$TAG" '{print $1, tag}' >> hash.db
+    done
 ```
+
+### Bulk adding students from a Full Sail roster CSV (csvkit)
+
+Full Sail roster exports (e.g. `AUG_S1_Roster.csv`) are CSV files with a `Primary Email` column. Use [csvkit](https://csvkit.readthedocs.io/) (`brew install csvkit`) to extract that column, then feed each email through the same normalization + hashing pipeline used above.
+
+```bash
+# Preview the emails that will be hashed (requires: brew install csvkit)
+csvcut -c "Primary Email" AUG_S1_Roster.csv | grep -v "Primary Email" | sort
+```
+
+```bash
+# Extract emails from the roster CSV, normalize the whole stream once, then hash
+# each line and append "<hash> <TAG>" to hash.db
+TAG="AUG_S1"
+csvcut -c "Primary Email" AUG_S1_Roster.csv \
+  | grep -v "Primary Email" \
+  | tr -d '\r' \
+  | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+  | tr '[:upper:]' '[:lower:]' \
+  | while IFS= read -r email; do
+      printf '%s' "$email" | sha256sum | awk -v tag="$TAG" '{print $1, tag}' >> hash.db
+    done
+```
+
+> **Tip:** Run the preview command first to confirm the column name and that the emails look correct before appending to `hash.db`. If your roster uses a different column name (e.g. `Email`, `Student Email`), adjust the `-c` argument accordingly.
 
 ### Notes
 
