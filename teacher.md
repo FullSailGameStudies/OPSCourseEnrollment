@@ -27,14 +27,14 @@ The workflow checks each student's Full Sail email against `hash.db` before prov
 <sha256_hash> <TAG>
 ```
 
-where `<sha256_hash>` is the SHA-256 of the student's normalized email (trimmed and lowercased), and `<TAG>` is a cohort/section string (e.g. `AUG_S0`) that the workflow appends to the generated repository name. Repositories are named `OPS_Lab<N>_<TAG>_<username>` (e.g. `OPS_Lab3_AUG_S0_jdoe`).
+where `<sha256_hash>` is the SHA-256 of the student's normalized email (trimmed, lowercased, and with the last 3 characters stripped so `.com` and `.edu` Full Sail addresses hash identically), and `<TAG>` is a cohort/section string (e.g. `AUG_S0`) that the workflow appends to the generated repository name. Repositories are named `OPS_Lab<N>_<TAG>_<username>` (e.g. `OPS_Lab3_AUG_S0_jdoe`).
 
 ### Adding a single student
 
 ```bash
-# Trim and lowercase the email, then hash and append to hash.db with the given tag
+# Trim and lowercase the email, strip the last 3 chars (TLD) so .com/.edu match, then hash
 TAG="AUG_S0"
-printf '%s' "studentname@student.fullsail.edu" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' | sha256sum | awk -v tag="$TAG" '{print $1, tag}' >> hash.db
+printf '%s' "studentname@student.fullsail.edu" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' | sed 's/...$//' | sha256sum | awk -v tag="$TAG" '{print $1, tag}' >> hash.db
 ```
 
 ### Bulk adding students from a file
@@ -43,10 +43,12 @@ Create a plain text file (e.g. `students.txt`) with one email per line, then run
 
 ```bash
 TAG="AUG_S1"
-# Normalize all emails once (strip CR, trim whitespace, lowercase), then hash each line
+# Normalize all emails once (strip CR, trim whitespace, lowercase, strip last 3 chars
+# so .com/.edu match), then hash each line
 tr -d '\r' < students.txt \
   | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
   | tr '[:upper:]' '[:lower:]' \
+  | sed 's/...$//' \
   | while IFS= read -r email; do
       printf '%s' "$email" | sha256sum | awk -v tag="$TAG" '{print $1, tag}' >> hash.db
     done
@@ -62,14 +64,17 @@ csvcut -c "Primary Email" AUG_S1_Roster.csv | grep -v "Primary Email" | sort
 ```
 
 ```bash
-# Extract emails from the roster CSV, normalize the whole stream once, then hash
-# each line and append "<hash> <TAG>" to hash.db
+# Extract emails from the roster CSV, normalize the whole stream once (strip CR, trim
+# whitespace, lowercase, strip last 3 chars so .com/.edu match), then hash each line and
+# append "<hash> <TAG>" to hash.db
 TAG="AUG_S1"
 csvcut -c "Primary Email" AUG_S1_Roster.csv \
   | grep -v "Primary Email" \
+  | grep -v "@fullsail." \
   | tr -d '\r' \
   | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
   | tr '[:upper:]' '[:lower:]' \
+  | sed 's/...$//' \
   | while IFS= read -r email; do
       printf '%s' "$email" | sha256sum | awk -v tag="$TAG" '{print $1, tag}' >> hash.db
     done
@@ -79,7 +84,7 @@ csvcut -c "Primary Email" AUG_S1_Roster.csv \
 
 ### Notes
 
-- Emails are normalized (trimmed of whitespace and lowercased) before hashing, so the input file does not need to be perfectly formatted.
+- Emails are normalized (trimmed of whitespace, lowercased, and stripped of the last 3 characters so `.com` and `.edu` Full Sail addresses produce the same hash) before hashing, so the input file does not need to be perfectly formatted.
 - Each line in `hash.db` is `<64-character hex SHA-256 digest> <TAG>` — the tag is a single whitespace-delimited token (no spaces inside the tag).
 - The `<TAG> MONTH_SECTION` becomes part of the provisioned repo name, so pick a stable, filesystem/GitHub-safe value (e.g. `AUG_S0`, `SEP_S1`). Avoid spaces and characters not allowed in GitHub repo names.
 - Commit and push `hash.db` after updating it so the workflow can access it during runs.

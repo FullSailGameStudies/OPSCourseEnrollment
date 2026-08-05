@@ -53,10 +53,16 @@ jobs:
           STUDENT_EMAIL_NORMALIZED=$(echo "$STUDENT_EMAIL" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')
           echo "STUDENT_EMAIL_NORMALIZED=$STUDENT_EMAIL_NORMALIZED" >> $GITHUB_ENV
 
+          # Full Sail emails can end in either .com or .edu, so strip the last 3 characters
+          # (the TLD) before hashing. This makes the hash identical regardless of which
+          # domain the student submitted.
+          STUDENT_EMAIL_FOR_HASH="${STUDENT_EMAIL_NORMALIZED%???}"
+          echo "STUDENT_EMAIL_FOR_HASH=$STUDENT_EMAIL_FOR_HASH" >> $GITHUB_ENV
+
           # Hash the normalized email and verify it against hash.db
           # Each line in hash.db is formatted as: "<sha256_hash> <EXTRA_STRING>"
           # The EXTRA_STRING (e.g. AUG_00) is a cohort/section tag appended to the generated repo name.
-          STUDENT_EMAIL_HASH=$(printf '%s' "$STUDENT_EMAIL_NORMALIZED" | sha256sum | awk '{print $1}')
+          STUDENT_EMAIL_HASH=$(printf '%s' "$STUDENT_EMAIL_FOR_HASH" | sha256sum | awk '{print $1}')
           MATCHING_LINE=$(grep "$STUDENT_EMAIL_HASH" hash.db || true)
           if [ -z "$MATCHING_LINE" ]; then
             echo "AUTH_FAILED=true" >> $GITHUB_ENV
