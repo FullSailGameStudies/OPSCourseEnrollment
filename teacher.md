@@ -159,3 +159,34 @@ gh issue list --repo FullSailGameStudies/OPSCourseEnrollment --state closed --js
 ```
 
 > **Warning:** `gh issue delete --yes` skips the confirmation prompt. Always review the list of closed issues before deleting. Deletion is permanent and cannot be undone.
+
+<details>
+<summary>Marking repositories as graded (adding <code>graded</code>, removing <code>not-graded</code>)</summary>
+
+The following bash function marks a student repository as graded by adding the `graded` topic and removing the `not-graded` topic. With no argument, it operates on the repo in the current directory (resolved via `gh repo view`). Add it to your shell(.bashrc or .zshrc), then call it with zero or one repo name.
+
+```bash
+# Mark a student repo as graded: add `graded`, remove `not-graded`.
+# With no arg, uses the current directory's repo.
+# Usage: fs_set_graded [OPS_Lab3_AUG_S0_jdoe]
+fs_set_graded() {
+  local repo="${1:-$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null | sed 's#^[^/]*/##')}"
+  [ -n "$repo" ] || { echo "not in a GitHub repo and no repo name given" >&2; return 2; }
+  echo "marking FullSailGameStudies/${repo} as graded"
+  gh api -X PUT    "repos/FullSailGameStudies/${repo}/topics/graded" --silent \
+    && gh api -X DELETE "repos/FullSailGameStudies/${repo}/topics/not-graded" --silent \
+    && echo "  done: ${repo} is now graded"
+}
+```
+
+> **Note:** Requires the `repo` scope. Authenticate with `gh auth login` if you haven't already. To mark every `not-graded` repo for a given tag at once, pipe a `gh repo list` query into the function:
+>
+> ```bash
+> # Mark all AUG_S0 repos as graded
+> gh repo list FullSailGameStudies --topic ops-student --topic not-graded \
+>   --json name --jq '.[].name' \
+>   | grep '^OPS_Lab[0-9]_AUG_S0_' \
+>   | xargs -I {} fs_set_graded {}
+> ```
+
+</details>
