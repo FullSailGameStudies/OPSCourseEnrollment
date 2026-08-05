@@ -54,13 +54,21 @@ jobs:
           echo "STUDENT_EMAIL_NORMALIZED=$STUDENT_EMAIL_NORMALIZED" >> $GITHUB_ENV
 
           # Hash the normalized email and verify it against hash.db
+          # Each line in hash.db is formatted as: "<sha256_hash> <EXTRA_STRING>"
+          # The EXTRA_STRING (e.g. AUG_00) is a cohort/section tag appended to the generated repo name.
           STUDENT_EMAIL_HASH=$(printf '%s' "$STUDENT_EMAIL_NORMALIZED" | sha256sum | awk '{print $1}')
-          if ! grep -q "$STUDENT_EMAIL_HASH" hash.db; then
+          MATCHING_LINE=$(grep "$STUDENT_EMAIL_HASH" hash.db || true)
+          if [ -z "$MATCHING_LINE" ]; then
             echo "AUTH_FAILED=true" >> $GITHUB_ENV
             echo "FAILURE_REASON=Your email was not found in the authorized student list. Contact your instructor to be added." >> $GITHUB_ENV
             echo "::error::Check failed: Email hash not found in hash.db (student not authorized)."
             exit 0
           fi
+          # Extract the extra string (second whitespace-delimited field) from the matching line.
+          # Strip any carriage returns (HASHDB may be stored with CRLF line endings, which would
+          # otherwise leave a trailing \r on REPO_TAG and corrupt downstream URLs/repo names).
+          REPO_TAG=$(printf '%s' "$MATCHING_LINE" | tr -d '\r' | awk '{print $2}')
+          echo "REPO_TAG=$REPO_TAG" >> $GITHUB_ENV
 
           # Extract the claim code submitted by the student (value following the "Claim Code" heading)
           STUDENT_CODE=$(echo "$ISSUE_BODY" | awk '/^###[[:space:]]+Claim Code/{getline; while ($0 ~ /^[[:space:]]*$/) getline; print; exit}')
@@ -116,8 +124,8 @@ jobs:
           ORG: ${{ env.ORG_NAME }}
           STUDENT_EMAIL_USERNAME: ${{ env.STUDENT_EMAIL_USERNAME }}
           STUDENT_GITHUB_LOGIN: ${{ github.event.issue.user.login }}
+          REPO_TAG: ${{ env.REPO_TAG }}
         run: |
-          MONTH_ABBREV=$(date +"%b" | tr '[:lower:]' '[:upper:]')
           LABS="3 4 5 6 7"
 
           git config --global user.name "github-actions[bot]"
@@ -127,7 +135,7 @@ jobs:
 
           for N in $LABS; do
             TEMPLATE_REPO="OPS_Lab${N}"
-            NEW_REPO_NAME="OPS_${MONTH_ABBREV}_Lab${N}_${STUDENT_EMAIL_USERNAME}"
+            NEW_REPO_NAME="OPS_Lab${N}_${REPO_TAG}_${STUDENT_EMAIL_USERNAME}"
 
             # Skip creation if the student already has this repo
             if gh repo view "$ORG/$NEW_REPO_NAME" > /dev/null 2>&1; then
