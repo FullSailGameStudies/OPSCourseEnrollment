@@ -37,6 +37,7 @@ jobs:
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          HASHDB: ${{ vars.HASHDB }}
         run: |
           # Extract the student's email from the issue body and derive the username (part before the @)
           STUDENT_EMAIL=$(echo "$ISSUE_BODY" | grep -oiE '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}' | head -n1)
@@ -59,15 +60,15 @@ jobs:
           STUDENT_EMAIL_FOR_HASH="${STUDENT_EMAIL_NORMALIZED%???}"
           echo "STUDENT_EMAIL_FOR_HASH=$STUDENT_EMAIL_FOR_HASH" >> $GITHUB_ENV
 
-          # Hash the normalized email and verify it against hash.db
-          # Each line in hash.db is formatted as: "<sha256_hash> <EXTRA_STRING>"
+          # Hash the normalized email and verify it against the HASHDB repository variable
+          # Each line in HASHDB is formatted as: "<sha256_hash> <EXTRA_STRING>"
           # The EXTRA_STRING (e.g. AUG_00) is a cohort/section tag appended to the generated repo name.
           STUDENT_EMAIL_HASH=$(printf '%s' "$STUDENT_EMAIL_FOR_HASH" | sha256sum | awk '{print $1}')
-          MATCHING_LINE=$(grep "$STUDENT_EMAIL_HASH" hash.db || true)
+          MATCHING_LINE=$(printf '%s\n' "$HASHDB" | grep "$STUDENT_EMAIL_HASH" || true)
           if [ -z "$MATCHING_LINE" ]; then
             echo "AUTH_FAILED=true" >> $GITHUB_ENV
             echo "FAILURE_REASON=Your email was not found in the authorized student list. Contact your instructor to be added." >> $GITHUB_ENV
-            echo "::error::Check failed: Email hash not found in hash.db (student not authorized)."
+            echo "::error::Check failed: Email hash not found in HASHDB (student not authorized)."
             exit 0
           fi
           # Extract the extra string (second whitespace-delimited field) from the matching line.

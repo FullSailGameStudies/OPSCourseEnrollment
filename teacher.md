@@ -19,9 +19,9 @@ printf '%s' "your-passcode" | sha256sum
 4. Test the workflow by creating a new issue with the new passcode
 5. Share the new passcode with students
 
-## Populating hash.db
+## Populating hash.db/HASHDB repository variable
 
-The workflow checks each student's Full Sail email against `hash.db` before provisioning repositories. Each line in `hash.db` is formatted as:
+The workflow checks each student's Full Sail email against the `HASHDB` **repository variable** (configured under Settings → Secrets and variables → Actions → Variables tab → repository variables section) before provisioning repositories. Each line in `HASHDB` is formatted as:
 
 ```
 <sha256_hash> <TAG>
@@ -29,10 +29,49 @@ The workflow checks each student's Full Sail email against `hash.db` before prov
 
 where `<sha256_hash>` is the SHA-256 of the student's normalized email (trimmed, lowercased, and with the last 3 characters stripped so `.com` and `.edu` Full Sail addresses hash identically), and `<TAG>` is a cohort/section string (e.g. `AUG_S0`) that the workflow appends to the generated repository name. Repositories are named `OPS_Lab<N>_<TAG>_<username>` (e.g. `OPS_Lab3_AUG_S0_jdoe`).
 
+> **Why a variable instead of a file?** Storing the hashes in a repository variable keeps the authorized-student list out of the git history and lets you update it without committing. The workflow reads it via `${{ vars.HASHDB }}` and greps it the same way it used to grep `hash.db`.
+
+### Configuring the variable in GitHub
+
+You can set or update `HASHDB` either through the GitHub web UI or with the GitHub CLI.
+
+**Option A — Web UI**
+
+1. Go to the repository on GitHub: **Settings → Secrets and variables → Actions → Variables**.
+2. Click **New repository variable**.
+3. Name: `HASHDB`
+4. Value: paste the full list of `<sha256_hash> <TAG>` lines (one per line).
+5. Click **Add variable**.
+
+To update later, click the existing `HASHDB` entry, edit the value, and save.
+
+**Option B — GitHub CLI**
+
+```bash
+# Set HASHDB from the contents of a local file (e.g. hash.db or students_hashes.txt)
+gh variable set HASHDB --body "$(cat hash.db)"
+
+# Or pipe hashes in directly from a generation command (see examples below)
+gh variable set HASHDB --body "$(cat <<'EOF'
+<sha256_hash> <TAG>
+<sha256_hash> <TAG>
+EOF
+)"
+
+# View the current value
+gh variable get HASHDB
+
+# Delete the variable
+gh variable delete HASHDB
+```
+
+> **Note:** `gh variable set` overwrites the existing value. To append new students, first retrieve the current value with `gh variable get HASHDB`, append the new lines, and set the combined value back.
+
 ### Adding a single student
 
 ```bash
-# Trim and lowercase the email, strip the last 3 chars (TLD) so .com/.edu match, then hash
+# Trim and lowercase the email, strip the last 3 chars (TLD) so .com/.edu match, then hash.
+# Prints "<hash> <TAG>" — copy this line into the HASHDB variable value.
 TAG="AUG_S0"
 printf '%s' "studentname@student.fullsail.edu" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' | sed 's/...$//' | sha256sum | awk -v tag="$TAG" '{print $1, tag}' >> hash.db
 ```
@@ -44,7 +83,8 @@ Create a plain text file (e.g. `students.txt`) with one email per line, then run
 ```bash
 TAG="AUG_S1"
 # Normalize all emails once (strip CR, trim whitespace, lowercase, strip last 3 chars
-# so .com/.edu match), then hash each line
+# so .com/.edu match), then hash each line and print "<hash> <TAG>".
+# Pipe the output into `gh variable set` to update HASHDB in one step.
 tr -d '\r' < students.txt \
   | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
   | tr '[:upper:]' '[:lower:]' \
@@ -52,6 +92,20 @@ tr -d '\r' < students.txt \
   | while IFS= read -r email; do
       printf '%s' "$email" | sha256sum | awk -v tag="$TAG" '{print $1, tag}' >> hash.db
     done
+```
+
+To merge these new lines with the existing authorized list and push the result back to GitHub:
+
+```bash
+NEW_HASHES="$(tr -d '\r' < students.txt \
+  | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+  | tr '[:upper:]' '[:lower:]' \
+  | sed 's/...$//' \
+  | while IFS= read -r email; do
+      printf '%s' "$email" | sha256sum | awk -v tag="$TAG" '{print $1, tag}'
+    done)"
+
+gh variable set HASHDB --body "$(printf '%s\n%s\n' "$(gh variable get HASHDB)" "$NEW_HASHES")"
 ```
 
 ### Bulk adding students from a Full Sail roster CSV (csvkit)
@@ -80,15 +134,15 @@ csvcut -c "Primary Email" AUG_S1_Roster.csv \
     done
 ```
 
-> **Tip:** Run the preview command first to confirm the column name and that the emails look correct before appending to `hash.db`. If your roster uses a different column name (e.g. `Email`, `Student Email`), adjust the `-c` argument accordingly.
+> **Tip:** Run the preview command first to confirm the column name and that the emails look correct before updating `HASHDB`. If your roster uses a different column name (e.g. `Email`, `Student Email`), adjust the `-c` argument accordingly.
 
 ### Notes
 
 - Emails are normalized (trimmed of whitespace, lowercased, and stripped of the last 3 characters so `.com` and `.edu` Full Sail addresses produce the same hash) before hashing, so the input file does not need to be perfectly formatted.
-- Each line in `hash.db` is `<64-character hex SHA-256 digest> <TAG>` — the tag is a single whitespace-delimited token (no spaces inside the tag).
+- Each line in `HASHDB` is `<64-character hex SHA-256 digest> <TAG>` — the tag is a single whitespace-delimited token (no spaces inside the tag).
 - The `<TAG> MONTH_SECTION` becomes part of the provisioned repo name, so pick a stable, filesystem/GitHub-safe value (e.g. `AUG_S0`, `SEP_S1`). Avoid spaces and characters not allowed in GitHub repo names.
-- Commit and push `hash.db` after updating it so the workflow can access it during runs.
-- To remove a student, delete their hash line from `hash.db` and commit the change.
+- After updating `HASHDB` the workflow picks up the new value on its next run — no commit or push required.
+- To remove a student, edit the `HASHDB` variable (via the web UI or `gh variable set`) and delete their hash line.
 
 ## Listing student repositories
 
@@ -112,7 +166,7 @@ gh repo list FullSailGameStudies --topic ops-student --topic not-graded --json n
 
 ## Cloning student repositories
 
-Repositories are named with the pattern `OPS_Lab<N>_<TAG>_<username>` (e.g. `OPS_Lab3_AUG_S0_jdoe`), where `<TAG>` is the cohort/section string stored alongside each hash in `hash.db`. To clone all repos for a given tag, filter the `gh repo list` output by the tag and clone each match:
+Repositories are named with the pattern `OPS_Lab<N>_<TAG>_<username>` (e.g. `OPS_Lab3_AUG_S0_jdoe`), where `<TAG>` is the cohort/section string stored alongside each hash in the `HASHDB` repository variable. To clone all repos for a given tag, filter the `gh repo list` output by the tag and clone each match:
 
 ```bash
 # Preview repos that will be cloned (dry run)
@@ -129,7 +183,7 @@ Replace `AUG_S0` with the tag you want to clone (e.g. `AUG_S0`, `SEP_S1`).
 
 ## Deleting student repositories
 
-Repositories are named with the pattern `OPS_Lab<N>_<TAG>_<username>` (e.g. `OPS_Lab3_AUG_S0_jdoe`), where `<TAG>` is the cohort/section string stored alongside each hash in `hash.db`. To delete all repos for a given tag, filter by the `ops-student` topic and match the tag:
+Repositories are named with the pattern `OPS_Lab<N>_<TAG>_<username>` (e.g. `OPS_Lab3_AUG_S0_jdoe`), where `<TAG>` is the cohort/section string stored alongside each hash in the `HASHDB` repository variable. To delete all repos for a given tag, filter by the `ops-student` topic and match the tag:
 
 ```bash
 # Preview repos that will be deleted (dry run)
