@@ -150,19 +150,21 @@ Provisioned repositories are tagged with the topics `ops-student` and `not-grade
 
 ```bash
 # List all repos in the org with both topics (table view)
-gh repo list FullSailGameStudies --topic ops-student --topic not-graded
+gh repo list FullSailGameStudies -L 1000 --topic ops-student --topic not-graded
 
 # List just the repo names
-gh repo list FullSailGameStudies --topic ops-student --topic not-graded --json name --jq '.[].name'
+gh repo list FullSailGameStudies -L 1000 --topic ops-student --topic not-graded --json name --jq '.[].name'
 
 # List with URLs
-gh repo list FullSailGameStudies --topic ops-student --topic not-graded --json name,url --jq '.[] | "\(.name)\t\(.url)"'
+gh repo list FullSailGameStudies -L 1000 --topic ops-student --topic not-graded --json name,url --jq '.[] | "\(.name)\t\(.url)"'
 
 # Count total provisioned repos
-gh repo list FullSailGameStudies --topic ops-student --topic not-graded --json name --jq 'length'
+gh repo list FullSailGameStudies -L 1000 --topic ops-student --topic not-graded --json name --jq 'length'
 ```
 
 > **Note:** `gh repo list` requires the `repo` scope. Authenticate with `gh auth login` if you haven't already.
+>
+> **Pagination:** `gh repo list` only returns the first 30 repositories by default. The `-L 1000` flag raises that limit so every provisioned repo is returned in a single call — without it, cohorts larger than 30 students would be silently truncated. If a cohort ever exceeds 1000 repos, bump the value higher.
 
 ## Cloning student repositories
 
@@ -170,11 +172,11 @@ Repositories are named with the pattern `OPS_Lab<N>_<TAG>_<username>` (e.g. `OPS
 
 ```bash
 # Preview repos that will be cloned (dry run)
-# gh repo list FullSailGameStudies --topic ops-student --topic not-graded --json url --jq '.[].url' | grep '^OPS_Lab3_AUG_S0_' # list via https url
-gh repo list FullSailGameStudies --topic ops-student --topic not-graded --json sshUrl --jq '.[].sshUrl' | grep '^OPS_Lab[0-9]_AUG_S0_'
+# gh repo list FullSailGameStudies -L 1000 --topic ops-student --topic not-graded --json url --jq '.[].url' | grep '^OPS_Lab3_AUG_S0_' # list via https url
+gh repo list FullSailGameStudies -L 1000 --topic ops-student --topic not-graded --json sshUrl --jq '.[].sshUrl' | grep '^OPS_Lab[0-9]_AUG_S0_'
 
 # Clone all OPS_Lab*_AUG_S0 repos into the current directory via SSH
-gh repo list FullSailGameStudies --topic ops-student --topic not-graded --json sshUrl --jq '.[].sshUrl' | grep '^OPS_Lab[0-9]_AUG_S0_' | xargs -I {} git clone {}
+gh repo list FullSailGameStudies -L 1000 --topic ops-student --topic not-graded --json sshUrl --jq '.[].sshUrl' | grep '^OPS_Lab[0-9]_AUG_S0_' | xargs -I {} git clone {}
 ```
 
 Replace `AUG_S0` with the tag you want to clone (e.g. `AUG_S0`, `SEP_S1`).
@@ -187,10 +189,10 @@ Repositories are named with the pattern `OPS_Lab<N>_<TAG>_<username>` (e.g. `OPS
 
 ```bash
 # Preview repos that will be deleted (dry run)
-gh repo list FullSailGameStudies --topic ops-student --json name --jq '.[].name' | grep '^OPS_Lab[0-9]_AUG_S0_'
+gh repo list FullSailGameStudies -L 1000 --topic ops-student --json name --jq '.[].name' | grep '^OPS_Lab[0-9]_AUG_S0_'
 
 # Delete all OPS_Lab*_AUG_S0 repos
-gh repo list FullSailGameStudies --topic ops-student --json name --jq '.[].name' | grep '^OPS_Lab[0-9]_AUG_S0_' # | xargs -I {} gh repo # delete "FullSailGameStudies/{}" # --yes
+gh repo list FullSailGameStudies -L 1000 --topic ops-student --json name --jq '.[].name' | grep '^OPS_Lab[0-9]_AUG_S0_' # | xargs -I {} gh repo # delete "FullSailGameStudies/{}" # --yes
 ```
 
 Replace `AUG_S0` with the tag you want to clean up (e.g. `AUG_S0`, `SEP_S1`).
@@ -237,7 +239,7 @@ fs_set_graded() {
 >
 > ```bash
 > # Mark all AUG_S0 repos as graded
-> gh repo list FullSailGameStudies --topic ops-student --topic not-graded \
+> gh repo list FullSailGameStudies -L 1000 --topic ops-student --topic not-graded \
 >   --json name --jq '.[].name' \
 >   | grep '^OPS_Lab[0-9]_AUG_S0_' \
 >   | xargs -I {} fs_set_graded {}
