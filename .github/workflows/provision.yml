@@ -222,7 +222,9 @@ jobs:
 
           ${PROVISION_SUMMARY}
           
-          **IMPORTANT**: This message will auto delete in 30 minutes. Please back this up for your records."
+          **IMPORTANT**: This message will auto delete in 30 minutes. Please back this up for your records.
+
+          **ACTION REQUIRED**: You will receive a separate repository invitation for each lab repo above. You must accept each invite within **7 days**, or the invitation will expire and you will lose access to that repo. Accept them now and clone them to verify they work."
           gh issue close $ISSUE_NUMBER \
             --repo "$GITHUB_REPOSITORY" \
             --reason "completed"
